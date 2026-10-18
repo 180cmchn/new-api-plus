@@ -51,7 +51,7 @@ func TestMain(m *testing.M) {
 
 	if err := db.AutoMigrate(
 		&model.Task{},
-		&model.User{},
+		&model.User{}, &model.WalletCharge{},
 		&model.Token{},
 		&model.Log{},
 		&model.Channel{},
@@ -74,6 +74,7 @@ func TestMain(m *testing.M) {
 func truncate(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
+		model.DB.Exec("DELETE FROM wallet_charges")
 		model.DB.Exec("DELETE FROM tasks")
 		model.DB.Exec("DELETE FROM users")
 		model.DB.Exec("DELETE FROM tokens")
@@ -1809,4 +1810,34 @@ func TestSettle_TokenRecalcFallsBackToCompletionTokens(t *testing.T) {
 			assert.Equal(t, testCase.wantQuota, task.Quota)
 		})
 	}
+}
+
+func TestMissingUpstreamTaskRefundsOriginalWalletsOnce(t *testing.T) {
+	truncate(t)
+	seedUser(t, 701, 1000)
+	seedToken(t, 701, 701, "wallet-failure-token", 5000)
+	seedChannel(t, 701)
+	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", 701).Updates(map[string]any{"gift_quota": 200, "commission_quota": 100}).Error)
+	require.NoError(t, model.UpdateWalletOrder(701, []string{model.WalletGift, model.WalletCommission, model.WalletOrdinary}))
+	_, err := model.SetWalletCharge(701, "missing-upstream-wallet", 500, false, true)
+	require.NoError(t, err)
+	require.NoError(t, model.DecreaseTokenQuota(701, "wallet-failure-token", 500))
+	seedChargedAccounting(t, 701, 701, 701, 500, 1)
+	task := makeTask(701, 701, 500, 701, BillingSourceWallet, 0)
+	task.PrivateData.WalletChargeID = "missing-upstream-wallet"
+	require.NoError(t, task.Insert())
+	originalStatus := task.Status
+	require.NoError(t, failTaskFromPoll(context.Background(), nil, task, originalStatus, "Upstream task not found"))
+	require.NoError(t, failTaskFromPoll(context.Background(), nil, task, originalStatus, "Upstream task not found"))
+	var user model.User
+	require.NoError(t, model.DB.First(&user, 701).Error)
+	assert.Equal(t, 1000, user.Quota)
+	assert.Equal(t, 200, user.GiftQuota)
+	assert.Equal(t, 100, user.CommissionQuota)
+	assert.Equal(t, 5000, getTokenRemainQuota(t, 701))
+	assert.Zero(t, getTaskQuota(t, task.ID))
+	var charge model.WalletCharge
+	require.NoError(t, model.DB.Where("request_id = ?", "missing-upstream-wallet").First(&charge).Error)
+	assert.Positive(t, charge.RefundedAt)
+	assert.Zero(t, charge.ConsumedAt)
 }

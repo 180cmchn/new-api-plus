@@ -12,6 +12,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	hostdto "github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -23,6 +25,76 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestPlaygroundChannelSelectionAndForwarding(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		requestPath  string
+		incomingPath string
+		modelName    string
+		wantMatch    bool
+	}{
+		{name: "API chat", requestPath: "/v1/chat/completions", incomingPath: "/v1/chat/completions", modelName: "gpt-test", wantMatch: true},
+		{name: "playground chat", requestPath: "/pg/chat/completions", incomingPath: "/v1/chat/completions", modelName: "gpt-test", wantMatch: true},
+		{name: "playground query", requestPath: "/pg/chat/completions?client=test", incomingPath: "/v1/chat/completions", modelName: "gpt-test", wantMatch: true},
+		{name: "responses only channel", requestPath: "/pg/chat/completions", incomingPath: "/v1/responses", modelName: "gpt-test"},
+		{name: "unsupported model", requestPath: "/pg/chat/completions", incomingPath: "/v1/chat/completions", modelName: "other-model"},
+		{name: "unregistered playground endpoint", requestPath: "/pg/responses", incomingPath: "/v1/responses", modelName: "gpt-test"},
+		{name: "extra path segment", requestPath: "/pg/chat/completions/extra", incomingPath: "/v1/chat/completions", modelName: "gpt-test"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := &dto.AdvancedCustomConfig{Routes: []dto.AdvancedCustomRoute{{
+				IncomingPath:           tc.incomingPath,
+				UpstreamPath:           "/proxy" + tc.incomingPath,
+				Converter:              relayconvert.ConverterNone,
+				Models:                 []string{"gpt-test"},
+				PassThroughBodyEnabled: true,
+			}}}
+			channel := &model.Channel{Type: constant.ChannelTypeAdvancedCustom}
+			channel.SetOtherSettings(dto.ChannelOtherSettings{AdvancedCustom: config})
+			c := advancedCustomGinContext(tc.requestPath)
+			matched, rejectedBy := model.ChannelSatisfiesFilters(channel, tc.modelName, []hostdto.ChannelFilter{{
+				Kind:        hostdto.FilterRequestPath,
+				RequestPath: c.Request.URL.Path,
+			}})
+			assert.Equal(t, tc.wantMatch, matched)
+			if tc.wantMatch {
+				assert.Empty(t, rejectedBy)
+			} else {
+				assert.Equal(t, hostdto.FilterRequestPath, rejectedBy)
+			}
+
+			info := advancedCustomRelayInfo(config)
+			info.OriginModelName = tc.modelName
+			common.SetContextKey(c, constant.ContextKeyChannelType, constant.ChannelTypeAdvancedCustom)
+			common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, info.ChannelBaseUrl)
+			common.SetContextKey(c, constant.ContextKeyChannelOtherSetting, info.ChannelOtherSettings)
+			common.SetContextKey(c, constant.ContextKeyOriginalModel, tc.modelName)
+			info.InitChannelMeta(c)
+			assert.Equal(t, tc.wantMatch, info.ChannelSetting.PassThroughBodyEnabled)
+			adaptor := &Adaptor{}
+			_, err := adaptor.ConvertOpenAIRequest(c, info, &dto.GeneralOpenAIRequest{
+				Model:    tc.modelName,
+				Messages: []dto.Message{{Role: "user", Content: "hello"}},
+			})
+			if !tc.wantMatch {
+				require.ErrorContains(t, err, "does not support request path")
+				return
+			}
+			require.NoError(t, err)
+			requestURL, err := adaptor.GetRequestURL(info)
+			require.NoError(t, err)
+			assert.Equal(t, "https://fallback.example/proxy/v1/chat/completions", requestURL)
+			assert.Equal(t, tc.requestPath, c.Request.URL.RequestURI())
+
+			// Direct forwarding without a Gin context must resolve the same route.
+			info.RequestURLPath = tc.requestPath
+			requestURL, err = (&Adaptor{}).GetRequestURL(info)
+			require.NoError(t, err)
+			assert.Equal(t, "https://fallback.example/proxy/v1/chat/completions", requestURL)
+		})
+	}
+}
 
 func TestAdaptorUsesExactRouteAndQueryAuth(t *testing.T) {
 	adaptor := &Adaptor{}

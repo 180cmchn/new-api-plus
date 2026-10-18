@@ -160,6 +160,27 @@ func GetQuotaDataByUserId(userId int, startTime int64, endTime int64) (quotaData
 	return quotaDatas, err
 }
 
+// GetUserTotalTokens includes recorded history and this node's pending hourly
+// data. Share the flush lock so moving cached rows into DB cannot double count.
+func GetUserTotalTokens(userID int) (int64, error) {
+	CacheQuotaDataLock.Lock()
+	defer CacheQuotaDataLock.Unlock()
+
+	var total int64
+	if err := DB.Model(&QuotaData{}).
+		Select("COALESCE(SUM(token_used), 0)").
+		Where("user_id = ?", userID).
+		Scan(&total).Error; err != nil {
+		return 0, err
+	}
+	for _, data := range CacheQuotaData {
+		if data.UserID == userID {
+			total += int64(data.TokenUsed)
+		}
+	}
+	return total, nil
+}
+
 func GetQuotaDataGroupByUser(startTime int64, endTime int64) (quotaData []*QuotaData, err error) {
 	var quotaDatas []*QuotaData
 	err = DB.Table("quota_data").

@@ -30,7 +30,11 @@ import {
 } from '@/components/ui/tooltip'
 import { formatQuota, formatTimestampToDate } from '@/lib/format'
 
-import { REDEMPTION_FILTER_EXPIRED, REDEMPTION_STATUSES } from '../constants'
+import {
+  REDEMPTION_FILTER_EXPIRED,
+  REDEMPTION_STATUSES,
+  getRedemptionTypeLabel,
+} from '../constants'
 import { isRedemptionExpired, isTimestampExpired } from '../lib'
 import type { Redemption } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
@@ -80,6 +84,12 @@ export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
         <span className='font-medium'>{row.getValue('name')}</span>
       ),
       size: 180,
+    },
+    {
+      accessorKey: 'type',
+      header: t('Code type'),
+      cell: ({ row }) => getRedemptionTypeLabel(row.original.type, t),
+      size: 150,
     },
     {
       accessorKey: 'status',
@@ -233,7 +243,7 @@ export function useRedemptionsColumns(): ColumnDef<Redemption>[] {
                   className='cursor-help'
                 />
               }
-            ></TooltipTrigger>
+            />
             <TooltipContent>
               <div className='space-y-1 text-xs'>
                 <div>

@@ -12,6 +12,7 @@ import (
 
 type Redemption struct {
 	Id           int            `json:"id"`
+	Type         string         `json:"type" gorm:"type:varchar(20);not null;default:''"`
 	UserId       int            `json:"user_id"`
 	Key          string         `json:"key" gorm:"type:char(32);uniqueIndex"`
 	Status       int            `json:"status" gorm:"default:1"`
@@ -59,7 +60,7 @@ func GetAllRedemptions(startIdx int, num int) (redemptions []*Redemption, total 
 	return redemptions, total, nil
 }
 
-func SearchRedemptions(keyword string, status string, startIdx int, num int) (redemptions []*Redemption, total int64, err error) {
+func SearchRedemptions(keyword string, status string, startIdx int, num int, codeTypes ...string) (redemptions []*Redemption, total int64, err error) {
 	tx := DB.Begin()
 	if tx.Error != nil {
 		return nil, 0, tx.Error
@@ -71,6 +72,13 @@ func SearchRedemptions(keyword string, status string, startIdx int, num int) (re
 	}()
 
 	query := tx.Model(&Redemption{})
+	if len(codeTypes) > 0 && codeTypes[0] != "" {
+		codeType := codeTypes[0]
+		if codeType == "legacy" {
+			codeType = RedemptionTypeLegacy
+		}
+		query = query.Where("type = ?", codeType)
+	}
 
 	if keyword != "" {
 		if id, err := strconv.Atoi(keyword); err == nil {
@@ -97,6 +105,8 @@ func SearchRedemptions(keyword string, status string, startIdx int, num int) (re
 			)
 		case strconv.Itoa(common.RedemptionCodeStatusDisabled):
 			query = query.Where("status = ?", common.RedemptionCodeStatusDisabled)
+		case strconv.Itoa(common.RedemptionCodeStatusRevoked):
+			query = query.Where("status = ?", common.RedemptionCodeStatusRevoked)
 		case strconv.Itoa(common.RedemptionCodeStatusUsed):
 			query = query.Where("status = ?", common.RedemptionCodeStatusUsed)
 		}
@@ -174,13 +184,23 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if result.RowsAffected == 0 {
 			return errors.New("redemption code already used")
 		}
-		return creditTopUpQuota(tx, userId, redemption.Quota, nil)
+		wallet := WalletOrdinary
+		if redemption.Type == RedemptionTypeCompensation {
+			wallet = WalletGift
+		}
+		if err := CreditWalletQuota(tx, userId, redemption.Quota, wallet); err != nil {
+			return err
+		}
+		_, referralErr := settleRedemptionReferral(tx, redemption, userId)
+		return referralErr
 	})
 	if err != nil {
 		common.SysError(common.LogText("redemption failed: %s", err.Error()))
 		return 0, ErrRedeemFailed
 	}
-	syncCreditUserQuotaCache(userId, redemption.Quota, common.LogText("redemption"))
+	if redemption.Type != RedemptionTypeCompensation {
+		syncCreditUserQuotaCache(userId, redemption.Quota, common.LogText("redemption"))
+	}
 	RecordLog(userId, LogTypeTopup, common.NewMessage("Topped up {{quota}} with a redemption code, code ID {{id}}", map[string]any{"quota": logger.FormatQuota(redemption.Quota), "id": redemption.Id}))
 	return redemption.Quota, nil
 }
@@ -197,11 +217,6 @@ func (redemption *Redemption) Insert() error {
 	return err
 }
 
-func (redemption *Redemption) SelectUpdate() error {
-	// This can update zero values
-	return DB.Model(redemption).Select("redeemed_time", "status").Updates(redemption).Error
-}
-
 // Update Make sure your token's fields is completed, because this will update non-zero values
 func (redemption *Redemption) Update() error {
 	if redemption.Quota <= 0 {
@@ -210,9 +225,22 @@ func (redemption *Redemption) Update() error {
 	if err := common.ValidateWalletQuota(redemption.Quota); err != nil {
 		return err
 	}
-	var err error
-	err = DB.Model(redemption).Select("name", "status", "quota", "redeemed_time", "expired_time").Updates(redemption).Error
-	return err
+	if redemption.Type != RedemptionTypeLegacy && redemption.Type != RedemptionTypeRecharge && redemption.Type != RedemptionTypeCompensation {
+		return common.NewMessage("Invalid redemption code type")
+	}
+	if redemption.Status != common.RedemptionCodeStatusEnabled && redemption.Status != common.RedemptionCodeStatusDisabled {
+		return common.NewMessage("Used or revoked redemption codes cannot be edited")
+	}
+	result := DB.Model(redemption).Where("status IN ? AND used_user_id = 0", []int{common.RedemptionCodeStatusEnabled, common.RedemptionCodeStatusDisabled}).
+		Where("type = '' OR ? <> ''", redemption.Type).
+		Select("name", "status", "quota", "expired_time", "type").Updates(redemption)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return common.NewMessage("Used or revoked redemption codes cannot be edited")
+	}
+	return nil
 }
 
 func (redemption *Redemption) Delete() error {

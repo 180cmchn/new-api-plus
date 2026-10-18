@@ -21,11 +21,12 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 
+import { SettleTodayCommissionsButton } from './settle-today-commissions-button'
 import { useUsers } from './users-provider'
 
 export function UsersPrimaryButtons() {
   const { t } = useTranslation()
-  const { setOpen, setCurrentRow } = useUsers()
+  const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
 
   const handleCreate = () => {
     setCurrentRow(null)
@@ -33,7 +34,8 @@ export function UsersPrimaryButtons() {
   }
 
   return (
-    <div className='flex gap-2'>
+    <div className='flex flex-wrap gap-2'>
+      <SettleTodayCommissionsButton onSettled={triggerRefresh} />
       <Button size='sm' onClick={handleCreate}>
         <Plus className='h-4 w-4' />
         {t('Add User')}

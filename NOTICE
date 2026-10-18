@@ -55,4 +55,16 @@ Desktop distributions include Electron, which embeds Chromium, Node.js, V8,
 and other third-party components. Electron and Chromium third-party license
 notices must remain available with desktop installers and installed apps.
 
+==== Modified Distribution Notice ====
+
+new-api-plus is an unofficial modified distribution maintained by 180cmchn.
+Modification date: 2026-10-19.
+Upstream base: QuantumNous/new-api v1.0.0-rc.45,
+commit 6cf0d90b5ff27f901697dddd61e0c28aba8efefc.
+Source for this modified version: https://github.com/180cmchn/new-api-plus
+Changes include wallet categories, consumption-based referral commissions,
+commission transfers, redemption code categories, referral administration,
+and cumulative token statistics. See plan.md for details and verification.
+Original attribution and license notices remain applicable to this version.
+
 ==== End of Notices ====

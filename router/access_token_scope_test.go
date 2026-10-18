@@ -4,19 +4,123 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
+
+func TestTodayCommissionSettlementRequiresAdminSession(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}, &model.UserAccessToken{}, &model.Option{}, &model.AuditLog{}, &model.WalletCharge{}, &model.CommissionDay{}, &model.CommissionSettlement{}))
+	oldDB, oldLogDB := model.DB, model.LOG_DB
+	oldMainKind, oldLogKind := common.MainDatabaseType(), common.LogDatabaseType()
+	oldSecret, oldRedis := common.SessionSecret, common.RedisEnabled
+	oldEnabled, oldRate := common.ReferralEnabled.Load(), common.ReferralRateBasisPoints.Load()
+	payment := operation_setting.GetPaymentSetting()
+	oldPayment := *payment
+	model.DB, model.LOG_DB = db, db
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	common.SessionSecret, common.RedisEnabled = "manual-commission-route-test-secret", false
+	common.ReferralEnabled.Store(true)
+	common.ReferralRateBasisPoints.Store(1000)
+	payment.ComplianceConfirmed, payment.ComplianceTermsVersion = true, operation_setting.CurrentComplianceTermsVersion
+	t.Cleanup(func() {
+		model.DB, model.LOG_DB = oldDB, oldLogDB
+		common.SetDatabaseTypes(oldMainKind, oldLogKind)
+		common.SessionSecret, common.RedisEnabled = oldSecret, oldRedis
+		common.ReferralEnabled.Store(oldEnabled)
+		common.ReferralRateBasisPoints.Store(oldRate)
+		*payment = oldPayment
+		require.NoError(t, sqlDB.Close())
+	})
+	require.NoError(t, model.EnsureLegacyAccessTokenRetireAt(time.Now().Unix()))
+	users := []model.User{
+		{Username: "settlement-user", AffCode: "settlement-user", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1},
+		{Username: "settlement-admin", AffCode: "settlement-admin", Role: common.RoleAdminUser, Status: common.UserStatusEnabled, AuthVersion: 1},
+		{Username: "settlement-root", AffCode: "settlement-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled, AuthVersion: 1},
+	}
+	require.NoError(t, db.Create(&users).Error)
+	bundles := make([]*service.AuthBundle, len(users))
+	for i := range users {
+		bundles[i], err = service.CreateLoginSession(users[i].Id, "password", "127.0.0.1", "commission-route-test")
+		require.NoError(t, err)
+	}
+	legacyToken := "manual-commission-admin-legacy-token"
+	require.NoError(t, db.Model(&users[1]).Update("access_token", legacyToken).Error)
+	revoked, err := service.CreateLoginSession(users[1].Id, "password", "127.0.0.1", "revoked-session")
+	require.NoError(t, err)
+	_, err = model.RevokeUserSession(users[1].Id, revoked.Session.SID, "test")
+	require.NoError(t, err)
+	expired, err := service.CreateLoginSession(users[1].Id, "password", "127.0.0.1", "expired-session")
+	require.NoError(t, err)
+	require.NoError(t, db.Model(&model.UserSession{}).Where("sid = ?", expired.Session.SID).Update("expires_at", time.Now().Unix()-1).Error)
+	now := time.Now().Unix()
+	charge := model.WalletCharge{RequestID: "admin-only-settlement", UserID: users[0].Id, InviterID: users[2].Id, OrdinaryQuota: 100, ConsumptionDay: model.BeijingDay(now), ConsumedAt: now}
+	require.NoError(t, db.Create(&charge).Error)
+	engine := gin.New()
+	SetApiRouter(engine)
+	for _, tc := range []struct {
+		name   string
+		token  string
+		status int
+		paid   int
+	}{
+		{name: "anonymous", status: http.StatusUnauthorized},
+		{name: "ordinary user", token: bundles[0].AccessToken, status: http.StatusForbidden},
+		{name: "admin personal token", token: legacyToken, status: http.StatusForbidden},
+		{name: "revoked admin session", token: revoked.AccessToken, status: http.StatusUnauthorized},
+		{name: "expired admin session", token: expired.AccessToken, status: http.StatusUnauthorized},
+		{name: "admin session", token: bundles[1].AccessToken, status: http.StatusOK, paid: 1},
+		{name: "root session replay", token: bundles[2].AccessToken, status: http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/api/referral/settle_today", strings.NewReader(`{}`))
+			request.Header.Set("Content-Type", "application/json")
+			if tc.token != "" {
+				request.Header.Set("Authorization", "Bearer "+tc.token)
+			}
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+			require.Equal(t, tc.status, response.Code, response.Body.String())
+			if tc.status == http.StatusOK {
+				var body struct {
+					Success bool                             `json:"success"`
+					Data    model.CommissionSettlementResult `json:"data"`
+				}
+				require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+				assert.True(t, body.Success, response.Body.String())
+				assert.Equal(t, tc.paid, body.Data.SettledCharges)
+			}
+		})
+	}
+	var inviter model.User
+	require.NoError(t, db.First(&inviter, users[2].Id).Error)
+	assert.Equal(t, 10, inviter.CommissionQuota)
+	var audit model.AuditLog
+	require.NoError(t, db.Where("action = ?", "referral.settle_today").Order("id DESC").First(&audit).Error)
+	assert.True(t, audit.Success)
+	assert.NotContains(t, audit.Content, bundles[2].AccessToken)
+}
 
 // accessTokenExemptRoutes are /api routes that never reach dashboard
 // authentication, so a personal access token has no rule to satisfy there.

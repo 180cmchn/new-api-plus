@@ -28,6 +28,7 @@ export const REDEMPTION_STATUS = {
   ENABLED: 1,
   DISABLED: 2,
   USED: 3,
+  REVOKED: 4,
 } as const
 
 export const REDEMPTION_STATUS_VALUES = Object.values(REDEMPTION_STATUS).map(
@@ -52,6 +53,11 @@ export const REDEMPTION_STATUSES: Record<
     variant: 'neutral',
     value: REDEMPTION_STATUS.DISABLED,
   },
+  [REDEMPTION_STATUS.REVOKED]: {
+    labelKey: 'Revoked',
+    variant: 'warning',
+    value: REDEMPTION_STATUS.REVOKED,
+  },
   [REDEMPTION_STATUS.USED]: {
     labelKey: 'Used',
     variant: 'neutral',
@@ -67,6 +73,7 @@ export const REDEMPTION_FILTER_VALUES = [
   String(REDEMPTION_STATUS.ENABLED),
   String(REDEMPTION_STATUS.DISABLED),
   String(REDEMPTION_STATUS.USED),
+  String(REDEMPTION_STATUS.REVOKED),
   REDEMPTION_FILTER_EXPIRED,
 ] as const
 
@@ -140,3 +147,17 @@ export const SUCCESS_MESSAGES = {
   REDEMPTION_DISABLED: 'Redemption code disabled successfully',
   COPY_SUCCESS: 'Copied to clipboard',
 } as const
+
+export function getRedemptionTypeLabel(type: string | undefined, t: TFunction) {
+  if (type === 'recharge') return t('Recharge code')
+  if (type === 'compensation') return t('Compensation code')
+  return t('Legacy code')
+}
+
+export function getRedemptionTypeOptions(t: TFunction) {
+  return [
+    { value: 'recharge', label: t('Recharge code') },
+    { value: 'compensation', label: t('Compensation code') },
+    { value: 'legacy', label: t('Legacy code') },
+  ]
+}

@@ -44,10 +44,11 @@ export async function getRedemptions(
 export async function searchRedemptions(
   params: SearchRedemptionsParams
 ): Promise<GetRedemptionsResponse> {
-  const { keyword = '', status = '', p = 1, page_size = 10 } = params
+  const { keyword = '', status = '', type = '', p = 1, page_size = 10 } = params
   const queryParams = new URLSearchParams()
   queryParams.set('keyword', keyword)
   if (status) queryParams.set('status', status)
+  if (type) queryParams.set('type', type)
   queryParams.set('p', String(p))
   queryParams.set('page_size', String(page_size))
   const res = await api.get(`/api/redemption/search?${queryParams.toString()}`)
@@ -103,5 +104,10 @@ export async function batchDeleteRedemptions(
   ids: number[]
 ): Promise<ApiResponse<number>> {
   const res = await api.post('/api/redemption/batch', { ids })
+  return res.data
+}
+
+export async function revokeRedemption(id: number): Promise<ApiResponse> {
+  const res = await api.post(`/api/redemption/${id}/revoke`)
   return res.data
 }

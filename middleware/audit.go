@@ -43,6 +43,10 @@ func (w *auditResponseWriter) WriteString(s string) (int, error) {
 // 未命中的写操作回退为 action="generic"，前端展示 "METHOD route"。
 var auditRouteActions = map[string]string{
 	// 用户管理
+	"PUT /api/user/:id/inviter":                        "user.inviter_change",
+	"POST /api/user/wallet/transfer":                   "wallet.commission_transfer",
+	"POST /api/referral/settle_today":                  "referral.settle_today",
+	"PUT /api/user/wallet/order":                       "wallet.spending_order",
 	"POST /api/user/topup/complete":                    "user.topup_complete",
 	"DELETE /api/user/:id/reset_passkey":               "user.reset_passkey",
 	"DELETE /api/user/:id/oauth/bindings/:provider_id": "user.oauth_unbind",
@@ -63,10 +67,11 @@ var auditRouteActions = map[string]string{
 	"DELETE /api/performance/logs":       "performance.clear_logs",
 
 	// 兑换码
-	"PUT /api/redemption/":           "redemption.update",
-	"POST /api/redemption/batch":     "redemption.delete_batch",
-	"DELETE /api/redemption/:id":     "redemption.delete",
-	"DELETE /api/redemption/invalid": "redemption.delete_invalid",
+	"POST /api/redemption/:id/revoke": "redemption.revoke",
+	"PUT /api/redemption/":            "redemption.update",
+	"POST /api/redemption/batch":      "redemption.delete_batch",
+	"DELETE /api/redemption/:id":      "redemption.delete",
+	"DELETE /api/redemption/invalid":  "redemption.delete_invalid",
 
 	// 预填组
 	"POST /api/prefill_group/":      "prefill_group.create",

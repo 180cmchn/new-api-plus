@@ -449,7 +449,9 @@ func TestPrepareTieredBillingForSelectedGroupTopUpArrearsAllowsNegativeBalance(t
 	// The top-up must NOT abort the request: the full delta is deducted, the
 	// uncovered 30k becomes arrears (negative balance), mirroring how
 	// settlement charges a positive delta unconditionally.
-	seedUser(t, userID, 20_000)
+	seedUser(t, userID, 70_000)
+	funding := &WalletFunding{userId: userID}
+	require.NoError(t, funding.PreConsume(50_000))
 
 	relayInfo := &relaycommon.RelayInfo{
 		UserId:                userID,
@@ -470,7 +472,7 @@ func TestPrepareTieredBillingForSelectedGroupTopUpArrearsAllowsNegativeBalance(t
 	}
 	session := &BillingSession{
 		relayInfo:        relayInfo,
-		funding:          &WalletFunding{userId: userID, consumed: 50_000},
+		funding:          funding,
 		preConsumedQuota: 50_000,
 	}
 	relayInfo.Billing = session
@@ -497,7 +499,9 @@ func TestBillingSessionReserveWalletTopUpDecrementsBalance(t *testing.T) {
 	truncate(t)
 
 	const userID = 702
-	seedUser(t, userID, 500_000)
+	seedUser(t, userID, 550_000)
+	funding := &WalletFunding{userId: userID}
+	require.NoError(t, funding.PreConsume(50_000))
 
 	relayInfo := &relaycommon.RelayInfo{
 		UserId:       userID,
@@ -505,7 +509,7 @@ func TestBillingSessionReserveWalletTopUpDecrementsBalance(t *testing.T) {
 	}
 	session := &BillingSession{
 		relayInfo:        relayInfo,
-		funding:          &WalletFunding{userId: userID, consumed: 50_000},
+		funding:          funding,
 		preConsumedQuota: 50_000,
 	}
 

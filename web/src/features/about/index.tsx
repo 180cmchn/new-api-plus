@@ -107,6 +107,16 @@ function EmptyAboutState() {
             </a>
             .
           </p>
+          <p>
+            <a
+              href='https://github.com/180cmchn/new-api-plus'
+              target='_blank'
+              rel='noopener noreferrer'
+              className='text-primary hover:underline'
+            >
+              {t('Source for this version')}
+            </a>
+          </p>
         </div>
       </div>
     </div>

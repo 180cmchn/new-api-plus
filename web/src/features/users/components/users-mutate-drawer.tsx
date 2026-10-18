@@ -444,6 +444,7 @@ export function UsersMutateDrawer({
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>
+                          {t('Ordinary wallet')} ·{' '}
                           {t('Remaining Quota ({{currency}})', {
                             currency: currencyLabel,
                           })}

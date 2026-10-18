@@ -119,6 +119,10 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.POST("/passkey/verify/finish", middleware.UserCriticalRateLimit("security-verification"), middleware.DisableCache(), controller.PasskeyVerifyFinish)
 				selfRoute.DELETE("/passkey", middleware.DisableCache(), controller.PasskeyDelete)
 				selfRoute.GET("/aff", controller.GetAffCode)
+				selfRoute.GET("/referral", controller.GetSelfReferral)
+				selfRoute.GET("/wallet", controller.GetSelfWallets)
+				selfRoute.PUT("/wallet/order", controller.UpdateWalletOrder)
+				selfRoute.POST("/wallet/transfer", middleware.UserCriticalRateLimit("commission-transfer"), controller.TransferCommission)
 				selfRoute.GET("/topup/info", controller.GetTopUpInfo)
 				selfRoute.GET("/topup/self", controller.GetUserTopUps)
 				selfRoute.POST("/topup", middleware.CriticalRateLimit(), controller.TopUp)
@@ -161,6 +165,7 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.DELETE("/:id/oauth/bindings/:provider_id", controller.UnbindCustomOAuthByAdmin)
 				adminRoute.DELETE("/:id/bindings/:binding_type", controller.AdminClearUserBinding)
 				adminRoute.GET("/:id", controller.GetUser)
+				adminRoute.PUT("/:id/inviter", middleware.UserCriticalRateLimit("inviter-change"), controller.ChangeUserInviter)
 				adminRoute.POST("/", controller.CreateUser)
 				adminRoute.POST("/manage", controller.ManageUser)
 				adminRoute.PUT("/", controller.UpdateUser)
@@ -305,6 +310,13 @@ func SetApiRouter(router *gin.Engine) {
 			}
 		}
 
+		apiRouter.POST("/referral/settle_today", middleware.AdminAuth(), middleware.UserCriticalRateLimit("commission-settlement"), controller.SettleTodayCommissions)
+		referralRoute := apiRouter.Group("/referral")
+		referralRoute.Use(middleware.RootAuth())
+		referralRoute.GET("/", controller.GetReferralDetails)
+		referralRoute.GET("/transfers", controller.GetCommissionTransfers)
+		referralRoute.GET("/:id/records", controller.GetReferralRecords)
+
 		redemptionRoute := apiRouter.Group("/redemption")
 		redemptionRoute.Use(middleware.AdminAuth())
 		{
@@ -313,6 +325,7 @@ func SetApiRouter(router *gin.Engine) {
 			redemptionRoute.GET("/:id", controller.GetRedemption)
 			redemptionRoute.POST("/", controller.AddRedemption)
 			redemptionRoute.POST("/batch", controller.DeleteRedemptionBatch)
+			redemptionRoute.POST("/:id/revoke", middleware.UserCriticalRateLimit("redemption-revoke"), controller.RevokeRedemption)
 			redemptionRoute.PUT("/", controller.UpdateRedemption)
 			redemptionRoute.DELETE("/invalid", controller.DeleteInvalidRedemption)
 			redemptionRoute.DELETE("/:id", controller.DeleteRedemption)
@@ -351,6 +364,7 @@ func SetApiRouter(router *gin.Engine) {
 		dataRoute.GET("/", middleware.AdminAuth(), controller.GetAllQuotaDates)
 		dataRoute.GET("/users", middleware.AdminAuth(), controller.GetQuotaDatesByUser)
 		dataRoute.GET("/self", middleware.UserAuth(), controller.GetUserQuotaDates)
+		dataRoute.GET("/self/summary", middleware.UserAuth(), controller.GetUserTokenSummary)
 		dataRoute.GET("/flow", middleware.AdminAuth(), controller.GetAllFlowQuotaDates)
 		dataRoute.GET("/flow/self", middleware.UserAuth(), controller.GetUserFlowQuotaDates)
 

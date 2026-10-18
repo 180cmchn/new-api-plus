@@ -140,6 +140,9 @@ func InitOptionMap() {
 	common.OptionMap["WeChatAccountQRCodeImageURL"] = ""
 	common.OptionMap["TurnstileSiteKey"] = ""
 	common.OptionMap["TurnstileSecretKey"] = ""
+	common.OptionMap["CommissionTransferFeePercent"] = strconv.FormatFloat(float64(common.CommissionTransferFeeBasisPoints.Load())/100, 'f', -1, 64)
+	common.OptionMap["ReferralEnabled"] = strconv.FormatBool(common.ReferralEnabled.Load())
+	common.OptionMap["ReferralRewardPercent"] = strconv.FormatFloat(float64(common.ReferralRateBasisPoints.Load())/100, 'f', -1, 64)
 	common.OptionMap["QuotaForNewUser"] = strconv.Itoa(common.QuotaForNewUser)
 	common.OptionMap["QuotaForInviter"] = strconv.Itoa(common.QuotaForInviter)
 	common.OptionMap["QuotaForInvitee"] = strconv.Itoa(common.QuotaForInvitee)
@@ -229,6 +232,13 @@ func SyncOptions(frequency int) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if key == "ReferralRewardPercent" || key == "CommissionTransferFeePercent" {
+		_, err := common.ParseReferralPercent(value)
+		return err
+	}
+	if key == "ReferralEnabled" && value != "true" && value != "false" {
+		return common.NewMessage("Invalid parameters")
+	}
 	if key == legacyAccessTokenRetireAtKey {
 		return errLegacyRetireAtReadOnly
 	}
@@ -251,6 +261,9 @@ func validateOptionValue(key string, value string) error {
 }
 
 func UpdateOption(key string, value string) error {
+	if key == "ReferralEnabled" || key == "ReferralRewardPercent" || key == "CommissionTransferFeePercent" {
+		return UpdateOptionsBulk(map[string]string{key: value})
+	}
 	if IsRequestPolicyOption(key) {
 		return UpdateRequestPolicyOptions(map[string]string{key: value})
 	}
@@ -611,6 +624,20 @@ func updateOptionMap(key string, value string) (err error) {
 		common.TurnstileSiteKey = value
 	case "TurnstileSecretKey":
 		common.TurnstileSecretKey = value
+	case "ReferralEnabled":
+		common.ReferralEnabled.Store(value == "true")
+	case "CommissionTransferFeePercent":
+		rate, err := common.ParseReferralPercent(value)
+		if err != nil {
+			return err
+		}
+		common.CommissionTransferFeeBasisPoints.Store(rate)
+	case "ReferralRewardPercent":
+		rate, err := common.ParseReferralPercent(value)
+		if err != nil {
+			return err
+		}
+		common.ReferralRateBasisPoints.Store(rate)
 	case "QuotaForNewUser":
 		common.QuotaForNewUser, _ = strconv.Atoi(value)
 	case "QuotaForInviter":

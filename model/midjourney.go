@@ -1,5 +1,10 @@
 package model
 
+import (
+	"github.com/QuantumNous/new-api/common"
+	"gorm.io/gorm"
+)
+
 type Midjourney struct {
 	Id          int    `json:"id"`
 	Code        int    `json:"code"`
@@ -24,8 +29,9 @@ type Midjourney struct {
 	Buttons     string `json:"buttons"`
 	Properties  string `json:"properties"`
 
-	TokenId          int `json:"-" gorm:"default:0"`
-	BillingChannelId int `json:"-" gorm:"default:0"`
+	WalletChargeID   string `json:"-" gorm:"type:varchar(128);index"`
+	TokenId          int    `json:"-" gorm:"default:0"`
+	BillingChannelId int    `json:"-" gorm:"default:0"`
 }
 
 // TaskQueryParams 用于包含所有搜索条件的结构体，可以根据需求添加更多字段
@@ -192,11 +198,32 @@ func (midjourney *Midjourney) GetBillingChannelId() int {
 // UpdateWithStatus performs a conditional UPDATE guarded by fromStatus (CAS).
 // Uses Model().Select("*").Updates() to avoid GORM Save()'s INSERT fallback.
 func (midjourney *Midjourney) UpdateWithStatus(fromStatus string) (bool, error) {
-	result := DB.Model(midjourney).Where("status = ?", fromStatus).Select("*").Updates(midjourney)
-	if result.Error != nil {
-		return false, result.Error
+	var won bool
+	var ordinaryDelta int
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(midjourney).Where("status = ?", fromStatus).Select("*").Updates(midjourney)
+		if result.Error != nil {
+			return result.Error
+		}
+		won = result.RowsAffected > 0
+		if !won || fromStatus == midjourney.Status || midjourney.WalletChargeID == "" {
+			return nil
+		}
+		if midjourney.Status == "FAILURE" && midjourney.Quota > 0 {
+			return refundWalletCharge(tx, midjourney.UserId, midjourney.WalletChargeID, &ordinaryDelta)
+		}
+		if midjourney.Status != "SUCCESS" {
+			return nil
+		}
+		var charge WalletCharge
+		return setWalletCharge(tx, midjourney.UserId, midjourney.WalletChargeID, midjourney.Quota, true, false, &charge, &ordinaryDelta)
+	})
+	if err == nil && ordinaryDelta != 0 {
+		if cacheErr := cacheIncrUserQuota(midjourney.UserId, int64(ordinaryDelta)); cacheErr != nil {
+			common.SysError(cacheErr.Error())
+		}
 	}
-	return result.RowsAffected > 0, nil
+	return won && err == nil, err
 }
 
 func MjBulkUpdate(mjIds []string, params map[string]any) error {

@@ -334,7 +334,7 @@ it('sends balance sorting to the server and keeps invitation details on two line
     screen.queryByRole('button', { name: 'Total Used' })
   ).not.toBeInTheDocument()
   expect(screen.getByText('Inviter ID: 42')).toBeInTheDocument()
-  expect(screen.getByText(/Invited 2 users · Earnings:/)).toBeInTheDocument()
+  expect(screen.getByText('Invited 2 users')).toBeInTheDocument()
 })
 
 it('shows balance above usage on mobile cards in Chinese', async () => {

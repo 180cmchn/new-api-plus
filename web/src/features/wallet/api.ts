@@ -246,3 +246,15 @@ export async function completeOrder(
   const res = await api.post('/api/user/topup/complete', request)
   return res.data
 }
+
+export interface ReferralSummary {
+  invite_count: number
+  reward_quota: number
+}
+
+export async function getReferralSummary(): Promise<
+  ApiResponse<ReferralSummary>
+> {
+  const res = await api.get('/api/user/referral')
+  return res.data
+}

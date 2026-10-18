@@ -169,6 +169,14 @@ func RunTaskPollingOnce(ctx context.Context, report func(processed, total int)) 
 		for _, task := range tasks {
 			upstreamID := task.GetUpstreamTaskID()
 			if upstreamID == "" {
+				if task.PrivateData.WalletChargeID != "" {
+					if err := failTaskFromPoll(ctx, nil, task, task.Status, "Upstream task not found"); err != nil {
+						logger.LogError(ctx, common.LogText("failed to finalize wallet task: %s", err))
+					} else {
+						summary.NullTasksFailed++
+					}
+					continue
+				}
 				// 统计失败的未完成任务
 				nullTaskIds = append(nullTaskIds, task.ID)
 				continue
@@ -250,6 +258,12 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 		var failedIDs []int64
 		for _, upstreamID := range taskIds {
 			if t, ok := taskM[upstreamID]; ok {
+				if t.PrivateData.WalletChargeID != "" {
+					if err := failTaskFromPoll(ctx, nil, t, t.Status, "Failed to get the channel information. Please contact the administrator"); err != nil {
+						logger.LogError(ctx, common.LogText("failed to finalize wallet task: %s", err))
+					}
+					continue
+				}
 				failedIDs = append(failedIDs, t.ID)
 			}
 		}
@@ -369,6 +383,9 @@ func updateBatchTasks(ctx context.Context, adaptor BatchTaskPollingAdaptor, chan
 
 		isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
 		terminalTransition := isDone && snap.Status != task.Status
+		if terminalTransition {
+			prepareTaskWalletCompletion(ctx, adaptor, task, &responseItem.TaskInfo)
+		}
 		won, updateErr := task.UpdateWithStatus(snap.Status)
 		if updateErr != nil {
 			common.SysLog(common.LogText("UpdateSunoTask task error: %s", updateErr.Error()))
@@ -430,6 +447,12 @@ func updateVideoTasks(ctx context.Context, platform constant.TaskPlatform, chann
 		var failedIDs []int64
 		for _, upstreamID := range taskIds {
 			if t, ok := taskM[upstreamID]; ok {
+				if t.PrivateData.WalletChargeID != "" {
+					if err := failTaskFromPoll(ctx, nil, t, t.Status, "Failed to get the channel information. Please contact the administrator"); err != nil {
+						logger.LogError(ctx, common.LogText("failed to finalize wallet task: %s", err))
+					}
+					continue
+				}
 				failedIDs = append(failedIDs, t.ID)
 			}
 		}
@@ -605,6 +628,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 
 	isDone := task.Status == model.TaskStatusSuccess || task.Status == model.TaskStatusFailure
 	if isDone && snap.Status != task.Status {
+		prepareTaskWalletCompletion(ctx, adaptor, task, taskResult)
 		won, err := task.UpdateWithStatus(snap.Status)
 		if err != nil {
 			logger.LogError(ctx, common.LogText("UpdateWithStatus failed for task %s: %s", task.TaskID, err.Error()))
@@ -633,6 +657,11 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 func finalizeTerminalTask(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
 	perfmetrics.RecordTaskResult(task, taskResult)
 	billingSettled := settleTaskBillingOnComplete(ctx, adaptor, task, taskResult)
+	if task.Status == model.TaskStatusSuccess && !billingSettled && task.PrivateData.WalletChargeID != "" {
+		if err := taskAdjustFunding(task, 0); err != nil {
+			logger.LogError(ctx, common.LogText("failed to finalize wallet consumption: %s", err))
+		}
+	}
 	if task.Status == model.TaskStatusFailure && !billingSettled && task.Quota != 0 {
 		RefundTaskQuota(ctx, task, task.FailReason)
 	}
@@ -678,33 +707,58 @@ func truncateBase64(s string) string {
 //
 // 表达式求值失败会保留预扣额度，因此也视为已接管，避免错误全退。
 func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) bool {
+	completion := task.WalletCompletion
+	if completion == nil {
+		completion = calculateTaskCompletionBilling(ctx, adaptor, task, taskResult)
+	}
+	if completion == nil {
+		return false
+	}
+	RecalculateTaskQuota(ctx, task, completion.Quota, completion.Reason, completion.Clamp)
+	return true
+}
+
+// Calculate once before the CAS, then commit the task status and wallet charge
+// together. A failed commit leaves the task pollable, so it can safely retry.
+func prepareTaskWalletCompletion(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) {
+	if task.PrivateData.WalletChargeID == "" || task.Status != model.TaskStatusSuccess {
+		return
+	}
+	task.WalletCompletion = calculateTaskCompletionBilling(ctx, adaptor, task, taskResult)
+	if task.WalletCompletion == nil {
+		task.WalletCompletion = &model.WalletTaskCompletion{Quota: task.Quota, Reason: common.NewMessage("Pre-consumed quota retained")}
+	}
+}
+
+func calculateTaskCompletionBilling(ctx context.Context, adaptor TaskPollingAdaptor, task *model.Task, taskResult *relaycommon.TaskInfo) *model.WalletTaskCompletion {
+	if task.Status == model.TaskStatusFailure && (adaptor == nil || task.PrivateData.WalletChargeID != "") {
+		return nil
+	}
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.TieredSnapshot != nil {
 		// 用量表达式结算只适用于成功任务；失败任务由调用方全额退款。
 		if task.Status == model.TaskStatusFailure {
-			return false
+			return nil
 		}
 		result, usageFacts, err := EvaluateTaskCompletionUsage(bc.TieredSnapshot, taskResult.UsageFacts)
 		if err != nil {
 			logger.LogWarn(ctx, common.LogText("task %s expression settlement failed, keeping the pre-consumed quota: %v", task.TaskID, err))
-			return true
+			return &model.WalletTaskCompletion{Quota: task.Quota, Reason: common.NewMessage("Pre-consumed quota retained")}
 		}
 		if result.Clamp != nil {
 			logger.LogWarn(ctx, common.LogText("task %s expression settlement quota was clamped: %+v", task.TaskID, result.Clamp))
 		}
 		bc.TieredSnapshot.UsageFacts = usageFacts
 		bc.TieredSnapshot.EstimatedTier = result.MatchedTier
-		RecalculateTaskQuota(ctx, task, result.ActualQuotaAfterGroup, common.NewMessage("Settled by the task usage expression"), result.Clamp)
-		return true
+		return &model.WalletTaskCompletion{Quota: result.ActualQuotaAfterGroup, Reason: common.NewMessage("Settled by the task usage expression"), Clamp: result.Clamp}
 	}
 	// 按次计费的成功任务保持预扣；失败任务由调用方全额退款。
 	if bc := task.PrivateData.BillingContext; bc != nil && bc.PerCallBilling {
 		logger.LogInfo(ctx, common.LogText("task %s is billed per request, skipping difference settlement", task.TaskID))
-		return false
+		return nil
 	}
 	// 优先让 adaptor 决定最终额度。
 	if actualQuota := adaptor.AdjustBillingOnComplete(task, taskResult); actualQuota > 0 {
-		RecalculateTaskQuota(ctx, task, actualQuota, common.NewMessage("Adjusted by the channel adaptor"))
-		return true
+		return &model.WalletTaskCompletion{Quota: actualQuota, Reason: common.NewMessage("Adjusted by the channel adaptor")}
 	}
 	// 回退到 token 重算。
 	tokens := taskResult.TotalTokens
@@ -712,9 +766,9 @@ func settleTaskBillingOnComplete(ctx context.Context, adaptor TaskPollingAdaptor
 		tokens = taskResult.CompletionTokens
 	}
 	if tokens > 0 {
-		return RecalculateTaskQuotaByTokens(ctx, task, tokens)
+		return calculateTaskQuotaByTokens(task, tokens)
 	}
-	return false
+	return nil
 }
 
 func classifyPollHTTP(statusCode int) string {

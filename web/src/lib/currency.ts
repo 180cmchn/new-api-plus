@@ -103,6 +103,8 @@ export interface CurrencyFormatOptions {
   showSymbol?: boolean
   /** Locale used for number formatting (defaults to the runtime locale) */
   locale?: Intl.LocalesArgument | undefined
+  /** Truncate displayed decimals toward zero without increasing tiny values. */
+  roundingMode?: 'halfExpand' | 'trunc'
 }
 
 type ResolvedCurrencyFormatOptions = Omit<
@@ -138,6 +140,7 @@ const DEFAULT_FORMAT_OPTIONS: ResolvedCurrencyFormatOptions = {
   compact: false,
   showSymbol: true,
   locale: undefined,
+  roundingMode: 'halfExpand',
 }
 
 const DISPLAY_TYPE_VALUES = ['USD', 'CNY', 'TOKENS', 'CUSTOM'] as const
@@ -241,6 +244,7 @@ function mergeOptions(
     compact: options.compact ?? DEFAULT_FORMAT_OPTIONS.compact,
     showSymbol: options.showSymbol ?? DEFAULT_FORMAT_OPTIONS.showSymbol,
     locale: options.locale ?? DEFAULT_FORMAT_OPTIONS.locale,
+    roundingMode: options.roundingMode ?? DEFAULT_FORMAT_OPTIONS.roundingMode,
   }
 }
 
@@ -270,9 +274,24 @@ function formatNumberWithSuffix(
   value: number,
   digitsLarge: number,
   digitsSmall: number,
-  abbreviate: boolean
+  abbreviate: boolean,
+  roundingMode: ResolvedCurrencyFormatOptions['roundingMode']
 ): string {
   const abs = Math.abs(value)
+  if (roundingMode === 'trunc') {
+    const abbreviated = abbreviate && abs >= 1000
+    const options = {
+      useGrouping: false,
+      maximumFractionDigits: abbreviated
+        ? 1
+        : getFractionDigits(value, digitsLarge, digitsSmall),
+      roundingMode,
+    }
+    const formatted = new Intl.NumberFormat('en-US', options).format(
+      abbreviated ? value / 1000 : value
+    )
+    return abbreviated ? `${formatted}k` : formatted
+  }
   if (abbreviate && abs >= 1000) {
     const result = value / 1000
     return `${removeTrailingZeros(result.toFixed(1))}k`
@@ -304,16 +323,19 @@ function formatCurrencyValue(
 ): string {
   if (meta.kind === 'tokens') {
     if (options.compact) {
-      return new Intl.NumberFormat(options.locale, {
-        notation: 'compact',
+      const compactOptions = {
+        notation: 'compact' as const,
         maximumFractionDigits: 1,
-      }).format(value)
+        roundingMode: options.roundingMode,
+      }
+      return new Intl.NumberFormat(options.locale, compactOptions).format(value)
     }
     return formatNumberWithSuffix(
       value,
       options.digitsLarge,
       options.digitsSmall,
-      options.abbreviate
+      options.abbreviate,
+      options.roundingMode
     )
   }
 
@@ -322,33 +344,39 @@ function formatCurrencyValue(
     options.digitsLarge,
     options.digitsSmall
   )
-  const adjustedValue = adjustForMinimum(value, digits, options.minimumNonZero)
+  let adjustedValue = value
+  if (options.roundingMode === 'trunc') {
+    // Do not round a tiny balance up to the minimum display unit, or show -0.
+    if (Math.abs(value) < 10 ** -digits) adjustedValue = 0
+  } else {
+    adjustedValue = adjustForMinimum(value, digits, options.minimumNonZero)
+  }
+  const numberOptions = {
+    notation: options.compact ? ('compact' as const) : ('standard' as const),
+    minimumFractionDigits: 0,
+    maximumFractionDigits: options.compact ? 1 : digits,
+    roundingMode: options.roundingMode,
+  }
 
   if (meta.kind === 'currency') {
     if (!options.showSymbol) {
-      return new Intl.NumberFormat(options.locale, {
-        notation: options.compact ? 'compact' : 'standard',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: options.compact ? 1 : digits,
-      }).format(adjustedValue)
+      return new Intl.NumberFormat(options.locale, numberOptions).format(
+        adjustedValue
+      )
     }
 
     const formatted = new Intl.NumberFormat(options.locale, {
       style: 'currency',
       currency: meta.currencyCode,
       currencyDisplay: 'narrowSymbol',
-      notation: options.compact ? 'compact' : 'standard',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: options.compact ? 1 : digits,
+      ...numberOptions,
     }).format(adjustedValue)
     return formatted
   }
 
-  const decimal = new Intl.NumberFormat(options.locale, {
-    notation: options.compact ? 'compact' : 'standard',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: options.compact ? 1 : digits,
-  }).format(adjustedValue)
+  const decimal = new Intl.NumberFormat(options.locale, numberOptions).format(
+    adjustedValue
+  )
 
   return options.showSymbol ? `${meta.symbol} ${decimal}` : decimal
 }
@@ -417,16 +445,19 @@ export function formatCurrencyFromUSD(
   if (meta.kind === 'tokens') {
     const tokens = amountUSD * config.quotaPerUnit
     if (merged.compact) {
-      return new Intl.NumberFormat(merged.locale, {
-        notation: 'compact',
+      const compactOptions = {
+        notation: 'compact' as const,
         maximumFractionDigits: 1,
-      }).format(tokens)
+        roundingMode: merged.roundingMode,
+      }
+      return new Intl.NumberFormat(merged.locale, compactOptions).format(tokens)
     }
     return formatNumberWithSuffix(
       tokens,
       0,
       merged.digitsSmall,
-      merged.abbreviate
+      merged.abbreviate,
+      merged.roundingMode
     )
   }
 

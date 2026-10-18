@@ -36,6 +36,7 @@ import {
   ERROR_MESSAGES,
   REDEMPTION_STATUS,
   getRedemptionStatusOptions,
+  getRedemptionTypeOptions,
 } from '../constants'
 import { isRedemptionExpired } from '../lib'
 import type { Redemption } from '../types'
@@ -72,13 +73,22 @@ export function RedemptionsTable() {
     navigate: route.useNavigate(),
     pagination: { defaultPage: 1, defaultPageSize: isMobile ? 10 : 20 },
     globalFilter: { enabled: true, key: 'filter' },
-    columnFilters: [{ columnId: 'status', searchKey: 'status', type: 'array' }],
+    columnFilters: [
+      { columnId: 'status', searchKey: 'status', type: 'array' },
+      { columnId: 'type', searchKey: 'type', type: 'array' },
+    ],
   })
   const statusFilter =
     (columnFilters.find((filter) => filter.id === 'status')?.value as
       | string[]
       | undefined) ?? []
   const statusFilterValue = statusFilter[0] ?? ''
+  const typeFilterValue =
+    (
+      columnFilters.find((filter) => filter.id === 'type')?.value as
+        | string[]
+        | undefined
+    )?.[0] ?? ''
 
   // Fetch data with React Query
   const { data, isLoading, isFetching } = useQuery({
@@ -88,11 +98,12 @@ export function RedemptionsTable() {
       pagination.pageSize,
       globalFilter,
       statusFilterValue,
+      typeFilterValue,
       refreshTrigger,
     ],
     queryFn: async () => {
       const hasFilter = globalFilter?.trim()
-      const hasStatusFilter = statusFilterValue !== ''
+      const hasStatusFilter = statusFilterValue !== '' || typeFilterValue !== ''
       const params = {
         p: pagination.pageIndex + 1,
         page_size: pagination.pageSize,
@@ -104,6 +115,7 @@ export function RedemptionsTable() {
               ...params,
               keyword: globalFilter,
               status: statusFilterValue,
+              type: typeFilterValue,
             })
           : await getRedemptions(params)
 
@@ -173,6 +185,12 @@ export function RedemptionsTable() {
         searchPlaceholder: t('Filter by name or ID...'),
         searchDebounceMs: 500,
         filters: [
+          {
+            columnId: 'type',
+            title: t('Code type'),
+            options: getRedemptionTypeOptions(t),
+            singleSelect: true,
+          },
           {
             columnId: 'status',
             title: t('Status'),

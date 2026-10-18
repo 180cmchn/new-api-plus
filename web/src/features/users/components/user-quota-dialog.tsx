@@ -115,7 +115,7 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
       open={props.open}
       onOpenChange={props.onOpenChange}
       title={t('Adjust Quota')}
-      description={t('Select an operation mode and enter the amount')}
+      description={`${t('Ordinary wallet')} · ${t('Select an operation mode and enter the amount')}`}
       contentHeight='auto'
       bodyClassName='space-y-4'
       footer={

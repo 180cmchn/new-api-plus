@@ -53,8 +53,25 @@ import { useUpdateOption } from '../hooks/use-update-option'
 
 const quotaSchema = z.object({
   QuotaForNewUser: z.coerce.number().min(0),
-  QuotaForInviter: z.coerce.number().min(0),
-  QuotaForInvitee: z.coerce.number().min(0),
+  ReferralEnabled: z.boolean(),
+  CommissionTransferFeePercent: z.coerce
+    .number()
+    .min(0)
+    .max(100)
+    .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-8, {
+      message: i18next.t(
+        'Transfer fee must be between 0 and 100 with at most two decimal places'
+      ),
+    }),
+  ReferralRewardPercent: z.coerce
+    .number()
+    .min(0)
+    .max(100)
+    .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-8, {
+      message: i18next.t(
+        'Referral percentage must be between 0 and 100 with at most two decimal places'
+      ),
+    }),
   TopUpLink: z.string(),
   quota_setting: z.object({
     enable_free_model_pre_consume: z.boolean(),
@@ -123,7 +140,7 @@ export function QuotaSettingsSection({
         <Alert variant='destructive'>
           <AlertDescription>
             {t(
-              'Non-zero invitation rewards require compliance confirmation in Payment Gateway settings.'
+              'Referral rewards require compliance confirmation in Payment Gateway settings.'
             )}
           </AlertDescription>
         </Alert>
@@ -226,26 +243,45 @@ export function QuotaSettingsSection({
 
             <FormField
               control={form.control}
-              name='QuotaForInviter'
+              name='ReferralEnabled'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>{t('Enable referral rewards')}</FormLabel>
+                    <FormDescription>
+                      {t(
+                        'Only ordinary wallet consumption earns referral rewards. Commissions settle daily at midnight Beijing time.'
+                      )}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      disabled={!complianceConfirmed || updateOption.isPending}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name='ReferralRewardPercent'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Inviter Reward')}</FormLabel>
+                  <FormLabel>{t('Referral reward percentage (%)')}</FormLabel>
                   <FormControl>
                     <Input
                       type='number'
-                      value={field.value ?? ''}
-                      onChange={handleNumberChange(field.onChange)}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
+                      min={0}
+                      max={100}
+                      step={0.01}
+                      {...field}
                     />
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'Quota given to users who invite others ({{formattedQuota}})',
-                      {
-                        formattedQuota: formatQuotaInputValue(field.value),
-                      }
+                      'The rate at daily settlement applies. Changes do not affect settled rewards.'
                     )}
                   </FormDescription>
                   <FormMessage />
@@ -255,24 +291,23 @@ export function QuotaSettingsSection({
 
             <FormField
               control={form.control}
-              name='QuotaForInvitee'
+              name='CommissionTransferFeePercent'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Invitee Reward')}</FormLabel>
+                  <FormLabel>{t('Commission transfer fee (%)')}</FormLabel>
                   <FormControl>
                     <Input
                       type='number'
-                      value={field.value ?? ''}
-                      onChange={handleNumberChange(field.onChange)}
-                      name={field.name}
-                      onBlur={field.onBlur}
-                      ref={field.ref}
+                      min={0}
+                      max={100}
+                      step={0.01}
+                      {...field}
                     />
                   </FormControl>
                   <FormDescription>
-                    {t('Quota given to invited users ({{formattedQuota}})', {
-                      formattedQuota: formatQuotaInputValue(field.value),
-                    })}
+                    {t(
+                      'The fee is deducted when commission is transferred to the ordinary wallet.'
+                    )}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

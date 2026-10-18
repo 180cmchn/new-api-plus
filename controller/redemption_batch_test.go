@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -198,4 +199,137 @@ func TestDeleteRedemptionBatch(t *testing.T) {
 			assert.False(t, all[15].DeletedAt.Valid)
 		})
 	}
+}
+
+func TestReferralEndpointAuthorizationAndPrivacy(t *testing.T) {
+	admin, _ := setupAccessTokenAudit(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Redemption{}, &model.RedemptionRecord{}, &model.WalletCharge{}, &model.CommissionSettlement{}, &model.CommissionTransfer{}, &model.ReferralBindingChange{}))
+	inviter := model.User{Username: "referral-user", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1, AffCode: "ref-a"}
+	require.NoError(t, model.DB.Create(&inviter).Error)
+	invitee := model.User{Username: "private-invitee", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1, AffCode: "ref-b", InviterId: inviter.Id}
+	require.NoError(t, model.DB.Create(&invitee).Error)
+	code := model.Redemption{Key: "usable-code-must-not-be-exposed", Name: "test", Type: model.RedemptionTypeRecharge, Quota: 500, Status: common.RedemptionCodeStatusUsed, UsedUserId: invitee.Id}
+	require.NoError(t, model.DB.Create(&code).Error)
+	record := model.RedemptionRecord{RedemptionId: code.Id, UserId: invitee.Id, InviterId: inviter.Id, Type: model.RedemptionTypeRecharge, Quota: 500, RateBasisPoints: 1000, RewardQuota: 50}
+	require.NoError(t, model.DB.Create(&record).Error)
+	_, adminToken := createAccessTokenTestSession(t, admin.Id, "referral-admin-session")
+	_, userToken := createAccessTokenTestSession(t, inviter.Id, "referral-user-session")
+	root := model.User{Username: "referral-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled, AuthVersion: 1}
+	require.NoError(t, model.DB.Create(&root).Error)
+	_, rootToken := createAccessTokenTestSession(t, root.Id, "referral-root-session")
+	router := gin.New()
+	router.Use(middleware.RequestId())
+	router.GET("/api/user/referral", middleware.UserAuth(), GetSelfReferral)
+	router.GET("/api/referral/", middleware.RootAuth(), GetReferralDetails)
+	router.GET("/api/referral/:id/records", middleware.RootAuth(), GetReferralRecords)
+	router.POST("/api/redemption/:id/revoke", middleware.AdminAuth(), RevokeRedemption)
+	router.GET("/api/user/wallet", middleware.UserAuth(), GetSelfWallets)
+	router.PUT("/api/user/wallet/order", middleware.UserAuth(), UpdateWalletOrder)
+	router.POST("/api/user/wallet/transfer", middleware.UserAuth(), TransferCommission)
+	router.PUT("/api/user/:id/inviter", middleware.AdminAuth(), ChangeUserInviter)
+	router.GET("/api/referral/transfers", middleware.RootAuth(), GetCommissionTransfers)
+	paths := []struct{ method, path string }{
+		{http.MethodGet, "/api/referral/"},
+		{http.MethodGet, fmt.Sprintf("/api/referral/%d/records", invitee.Id)},
+		{http.MethodPost, fmt.Sprintf("/api/redemption/%d/revoke", code.Id)},
+	}
+	for _, endpoint := range paths {
+		for _, credential := range []struct {
+			token  string
+			status int
+		}{{"", http.StatusUnauthorized}, {"invalid", http.StatusUnauthorized}, {userToken, http.StatusForbidden}} {
+			response := accessTokenRequest(router, endpoint.method, endpoint.path, credential.token, "", "")
+			assert.Equal(t, credential.status, response.Code)
+			assert.NotContains(t, response.Body.String(), invitee.Username)
+		}
+	}
+	response := accessTokenRequest(router, http.MethodGet, "/api/user/referral?id=999", userToken, "", "")
+	require.Equal(t, http.StatusOK, response.Code)
+	var summary struct {
+		Success bool
+		Data    map[string]any
+	}
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &summary))
+	assert.True(t, summary.Success)
+	assert.Equal(t, map[string]any{"invite_count": float64(1), "reward_quota": float64(50)}, summary.Data)
+	for _, endpoint := range paths[:2] {
+		response = accessTokenRequest(router, endpoint.method, endpoint.path, adminToken, "", "")
+		assert.Equal(t, http.StatusForbidden, response.Code)
+		response = accessTokenRequest(router, endpoint.method, endpoint.path, rootToken, "", "")
+		assert.Equal(t, http.StatusOK, response.Code)
+		assert.NotContains(t, response.Body.String(), code.Key)
+		var body struct{ Success bool }
+		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &body))
+		assert.True(t, body.Success)
+	}
+	restricted, _ := createScopedAccessToken(t, admin.Id, 0, "profile:read")
+	response = accessTokenRequest(router, http.MethodGet, "/api/referral/", restricted, "", "")
+	assert.Equal(t, http.StatusForbidden, response.Code)
+	response = accessTokenRequest(router, http.MethodPost, paths[2].path, adminToken, "", "")
+	require.Equal(t, http.StatusOK, response.Code)
+	var result struct{ Success bool }
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+	require.True(t, result.Success, response.Body.String())
+	require.NoError(t, model.DB.First(&inviter, inviter.Id).Error)
+	require.NoError(t, model.DB.First(&invitee, invitee.Id).Error)
+	assert.Equal(t, -50, inviter.Quota)
+	assert.Equal(t, -500, invitee.Quota)
+	response = accessTokenRequest(router, http.MethodPost, paths[2].path, adminToken, "", "")
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+	assert.False(t, result.Success)
+	var events []model.AuditLog
+	require.NoError(t, model.LOG_DB.Where("action = ? AND success = ?", "redemption.revoke", true).Find(&events).Error)
+	require.Len(t, events, 1)
+
+	// Wallet mutations are scoped to the authenticated account, even when the
+	// caller supplies another user ID. Commission details remain root-only.
+	oldPayment := *operation_setting.GetPaymentSetting()
+	oldFee := common.CommissionTransferFeeBasisPoints.Load()
+	operation_setting.GetPaymentSetting().ComplianceConfirmed = true
+	operation_setting.GetPaymentSetting().ComplianceTermsVersion = operation_setting.CurrentComplianceTermsVersion
+	common.CommissionTransferFeeBasisPoints.Store(1000)
+	t.Cleanup(func() {
+		*operation_setting.GetPaymentSetting() = oldPayment
+		common.CommissionTransferFeeBasisPoints.Store(oldFee)
+	})
+	require.NoError(t, model.DB.Model(&inviter).Updates(map[string]any{"commission_quota": 1000, "gift_quota": 500}).Error)
+	response = accessTokenRequest(router, http.MethodGet, fmt.Sprintf("/api/user/wallet?id=%d", invitee.Id), userToken, "", "")
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &summary))
+	assert.Equal(t, float64(1000), summary.Data["commission_quota"])
+	for _, token := range []string{userToken, adminToken} {
+		response = accessTokenRequest(router, http.MethodGet, "/api/referral/transfers", token, "", "")
+		assert.Equal(t, http.StatusForbidden, response.Code)
+	}
+	response = accessTokenRequest(router, http.MethodPut, "/api/user/wallet/order", userToken, "", `{"wallet_order":[]}`)
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+	assert.True(t, result.Success)
+	response = accessTokenRequest(router, http.MethodPut, "/api/user/wallet/order", userToken, "", `{"wallet_order":["ordinary","ordinary"]}`)
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+	assert.False(t, result.Success)
+	transferBody := fmt.Sprintf(`{"quota":100,"fee_basis_points":1000,"request_id":"wallet-http-request","user_id":%d}`, invitee.Id)
+	for range 2 {
+		response = accessTokenRequest(router, http.MethodPost, "/api/user/wallet/transfer", userToken, "", transferBody)
+		require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+		require.True(t, result.Success, response.Body.String())
+	}
+	require.NoError(t, model.DB.First(&inviter, inviter.Id).Error)
+	require.NoError(t, model.DB.First(&invitee, invitee.Id).Error)
+	assert.Equal(t, 40, inviter.Quota)
+	assert.Equal(t, 900, inviter.CommissionQuota)
+	assert.Equal(t, 500, inviter.GiftQuota)
+	assert.Equal(t, -500, invitee.Quota)
+	response = accessTokenRequest(router, http.MethodPost, "/api/user/wallet/transfer", restricted, "", transferBody)
+	assert.Equal(t, http.StatusForbidden, response.Code)
+	bindPath := fmt.Sprintf("/api/user/%d/inviter", invitee.Id)
+	bindBody := fmt.Sprintf(`{"inviter_id":%d}`, admin.Id)
+	response = accessTokenRequest(router, http.MethodPut, bindPath, userToken, "", bindBody)
+	assert.Equal(t, http.StatusForbidden, response.Code)
+	response = accessTokenRequest(router, http.MethodPut, bindPath, adminToken, "", bindBody)
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+	assert.True(t, result.Success, response.Body.String())
+	require.NoError(t, model.DB.First(&invitee, invitee.Id).Error)
+	assert.Equal(t, admin.Id, invitee.InviterId)
+	response = accessTokenRequest(router, http.MethodPut, fmt.Sprintf("/api/user/%d/inviter", root.Id), adminToken, "", bindBody)
+	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &result))
+	assert.False(t, result.Success, "an administrator cannot change a root account")
 }

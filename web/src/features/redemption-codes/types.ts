@@ -26,8 +26,9 @@ export const redemptionSchema = z.object({
   id: z.number(),
   user_id: z.number(),
   name: z.string(),
+  type: z.enum(['', 'recharge', 'compensation']).optional(),
   key: z.string(),
-  status: z.number(), // 1: enabled, 2: disabled, 3: used
+  status: z.number(), // 1: enabled, 2: disabled, 3: used, 4: revoked
   quota: z.number(),
   created_time: z.number(),
   redeemed_time: z.number(),
@@ -65,6 +66,7 @@ export interface GetRedemptionsResponse {
 
 export interface SearchRedemptionsParams {
   keyword?: string
+  type?: string
   status?: string
   p?: number
   page_size?: number
@@ -73,6 +75,7 @@ export interface SearchRedemptionsParams {
 export interface RedemptionFormData {
   id?: number
   name: string
+  type: string
   quota: number
   expired_time: number
   count?: number // Only for create
@@ -83,4 +86,9 @@ export interface RedemptionFormData {
 // Dialog Types
 // ============================================================================
 
-export type RedemptionsDialogType = 'create' | 'update' | 'delete' | 'view'
+export type RedemptionsDialogType =
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'view'
+  | 'revoke'

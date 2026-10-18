@@ -16,23 +16,24 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Loader2 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Dialog } from '@/components/dialog'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import {
-  formatQuota,
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '@/components/ui/input-group'
+import { Label } from '@/components/ui/label'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatQuotaWithCurrency } from '@/lib/currency'
+import {
+  formatNumber,
   parseQuotaFromDollars,
   quotaUnitsToDollars,
 } from '@/lib/format'
-import {
-  DEFAULT_CURRENCY_CONFIG,
-  useSystemConfigStore,
-} from '@/stores/system-config-store'
 
 interface TransferDialogProps {
   open: boolean
@@ -40,109 +41,109 @@ interface TransferDialogProps {
   onConfirm: (amount: number) => Promise<boolean>
   availableQuota: number
   transferring: boolean
+  feeBasisPoints?: number
 }
 
-export function TransferDialog({
-  open,
-  onOpenChange,
-  onConfirm,
-  availableQuota,
-  transferring,
-}: TransferDialogProps) {
-  const { t } = useTranslation()
-  const currencyConfig = useSystemConfigStore((state) => state.config.currency)
-  const minimumQuota = Math.ceil(
-    currencyConfig.quotaPerUnit > 0
-      ? currencyConfig.quotaPerUnit
-      : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
-  )
-  const minimumAmount = quotaUnitsToDollars(minimumQuota)
-  const maximumAmount = quotaUnitsToDollars(availableQuota)
-  const [amount, setAmount] = useState(minimumAmount)
-  const transferQuota = parseQuotaFromDollars(amount)
-  const canTransfer =
-    Number.isFinite(amount) &&
-    transferQuota >= minimumQuota &&
-    transferQuota <= availableQuota
-
-  useEffect(() => {
-    if (open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAmount(minimumAmount)
-    }
-  }, [minimumAmount, open])
-
-  const handleConfirm = async () => {
-    if (!canTransfer) return
-
-    const success = await onConfirm(transferQuota)
-    if (success) {
-      onOpenChange(false)
-    }
-  }
+export function TransferDialog(props: TransferDialogProps) {
+  const { t, i18n } = useTranslation()
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const [amount, setAmount] = useState('')
+  const [all, setAll] = useState(false)
+  // Keep the raw quota when All is selected: converting a formatted display
+  // amount back to quota can leave a residual balance or exceed the balance.
+  const quota = all
+    ? props.availableQuota
+    : parseQuotaFromDollars(Number(amount), 'trunc')
+  const feeRate = props.feeBasisPoints ?? 0
+  const validQuota =
+    Number.isSafeInteger(quota) && quota > 0 && quota <= props.availableQuota
+  const received = validQuota
+    ? Number((BigInt(quota) * BigInt(10000 - feeRate)) / 10000n)
+    : 0
+  const fee = validQuota ? quota - received : 0
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={onOpenChange}
-      title={t('Transfer Rewards')}
-      description={t('Move affiliate rewards to your main balance')}
-      contentClassName='max-sm:w-[calc(100vw-1.5rem)] sm:max-w-md'
-      titleClassName='text-xl font-semibold'
-      footerClassName='grid grid-cols-2 gap-2 sm:flex'
-      contentHeight='auto'
-      bodyClassName='space-y-4'
-      footer={
-        <>
-          <Button
-            variant='outline'
-            onClick={() => onOpenChange(false)}
-            disabled={transferring}
-          >
-            {t('Cancel')}
-          </Button>
-          <Button
-            onClick={handleConfirm}
-            disabled={transferring || !canTransfer}
-          >
-            {transferring && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
-            {t('Transfer')}
-          </Button>
-        </>
-      }
+    <ConfirmDialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (!props.transferring) props.onOpenChange(open)
+      }}
+      title={t('Transfer commission to ordinary wallet')}
+      desc={t(
+        'The fee is deducted from the transfer amount. Commission and gift credit cannot be refunded directly.'
+      )}
+      confirmText={t('Confirm transfer')}
+      isLoading={props.transferring}
+      disabled={!validQuota || received <= 0}
+      handleConfirm={async () => {
+        if (validQuota && received > 0 && (await props.onConfirm(quota))) {
+          props.onOpenChange(false)
+        }
+      }}
     >
-      <div className='space-y-4 py-3 sm:space-y-6 sm:py-4'>
+      <div className='space-y-4'>
+        <p>
+          {t('Commission')}:{' '}
+          {formatQuotaWithCurrency(props.availableQuota, {
+            abbreviate: false,
+            roundingMode: 'trunc',
+            locale,
+          })}
+        </p>
         <div className='space-y-2'>
-          <Label className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
-            {t('Available Rewards')}
-          </Label>
-          <div className='text-2xl font-semibold'>
-            {formatQuota(availableQuota)}
-          </div>
-        </div>
-
-        <div className='space-y-3'>
-          <Label
-            htmlFor='transfer-amount'
-            className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
-          >
+          <Label htmlFor='commission-transfer-amount'>
             {t('Transfer Amount')}
           </Label>
-          <Input
-            id='transfer-amount'
-            type='number'
-            value={amount}
-            onChange={(e) => setAmount(Number(e.target.value))}
-            min={minimumAmount}
-            max={maximumAmount}
-            step={minimumAmount}
-            className='font-mono text-lg'
-          />
-          <p className='text-muted-foreground text-xs'>
-            {t('Minimum:')} {formatQuota(minimumQuota)}
-          </p>
+          <InputGroup>
+            <InputGroupInput
+              id='commission-transfer-amount'
+              type='number'
+              min={0}
+              max={quotaUnitsToDollars(props.availableQuota)}
+              step='any'
+              value={
+                all ? String(quotaUnitsToDollars(props.availableQuota)) : amount
+              }
+              disabled={props.transferring}
+              onChange={(event) => {
+                setAll(false)
+                setAmount(event.target.value)
+              }}
+            />
+            <InputGroupAddon align='inline-end'>
+              <InputGroupButton
+                aria-pressed={all}
+                disabled={props.transferring || props.availableQuota <= 0}
+                onClick={() => setAll(true)}
+              >
+                {t('All')}
+              </InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
         </div>
+        <dl className='grid grid-cols-2 gap-2 text-sm tabular-nums'>
+          <dt>
+            {t('Transfer fee')} ({formatNumber(feeRate / 100, locale)}%)
+          </dt>
+          <dd className='text-right'>
+            {formatQuotaWithCurrency(fee, {
+              abbreviate: false,
+              digitsSmall: 6,
+              roundingMode: 'trunc',
+              locale,
+            })}
+          </dd>
+          <dt>{t('Amount received')}</dt>
+          <dd className='text-right font-semibold'>
+            {formatQuotaWithCurrency(received, {
+              abbreviate: false,
+              digitsSmall: 6,
+              roundingMode: 'trunc',
+              locale,
+            })}
+          </dd>
+        </dl>
       </div>
-    </Dialog>
+    </ConfirmDialog>
   )
 }

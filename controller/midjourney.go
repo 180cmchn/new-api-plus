@@ -49,6 +49,14 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 	nullTaskIds := make([]int, 0)
 	for _, task := range tasks {
 		if task.MjId == "" {
+			if task.WalletChargeID != "" {
+				if err := service.FailMidjourneyWalletTask(ctx, task, "Upstream task not found"); err != nil {
+					logger.LogError(ctx, common.LogText("failed to finalize wallet task: %s", err))
+				} else {
+					summary.NullTasksFailed++
+				}
+				continue
+			}
 			// 统计失败的未完成任务
 			nullTaskIds = append(nullTaskIds, task.Id)
 			continue
@@ -57,7 +65,7 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 		taskChannelM[task.ChannelId] = append(taskChannelM[task.ChannelId], task.MjId)
 	}
 	if len(nullTaskIds) > 0 {
-		summary.NullTasksFailed = len(nullTaskIds)
+		summary.NullTasksFailed += len(nullTaskIds)
 		err := model.MjBulkUpdateByTaskIds(nullTaskIds, map[string]any{
 			"status":   "FAILURE",
 			"progress": "100%",
@@ -90,7 +98,18 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 		midjourneyChannel, err := model.CacheGetChannel(channelId)
 		if err != nil {
 			logger.LogError(ctx, common.LogText("CacheGetChannel: %v", err))
-			err := model.MjBulkUpdate(taskIds, map[string]any{
+			var legacyIDs []string
+			for _, taskID := range taskIds {
+				task := taskM[taskID]
+				if task != nil && task.WalletChargeID != "" {
+					if err := service.FailMidjourneyWalletTask(ctx, task, "Failed to get the channel information. Please contact the administrator"); err != nil {
+						logger.LogError(ctx, common.LogText("failed to finalize wallet task: %s", err))
+					}
+				} else {
+					legacyIDs = append(legacyIDs, taskID)
+				}
+			}
+			err := model.MjBulkUpdate(legacyIDs, map[string]any{
 				"fail_reason": "Failed to get the channel information. Please contact the administrator",
 				"status":      "FAILURE",
 				"progress":    "100%",
@@ -214,6 +233,10 @@ func runMidjourneyTaskUpdateOnce(ctx context.Context, report func(processed, tot
 				logger.LogError(ctx, common.LogText("UpdateMidjourneyTask task error: %s", err.Error()))
 			} else if won && shouldReturnQuota {
 				service.RefundMidjourneyQuota(ctx, task, "Composition failed")
+			} else if won && task.Status == "SUCCESS" && task.WalletChargeID != "" {
+				if _, err := model.SetWalletCharge(task.UserId, task.WalletChargeID, task.Quota, true, false); err != nil {
+					logger.LogError(ctx, common.LogText("failed to finalize wallet consumption: %s", err))
+				}
 			}
 		}
 	}

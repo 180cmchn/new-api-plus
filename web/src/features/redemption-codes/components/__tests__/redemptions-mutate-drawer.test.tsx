@@ -316,3 +316,46 @@ describe('redemption drawer', () => {
     expect(updates[0]?.quota).toBe(1000001)
   })
 })
+
+test('an unused compensation code can change type without changing its quota', async () => {
+  const original: Redemption = {
+    ...redemption(1),
+    type: 'compensation',
+    status: 2,
+  }
+  const updates: unknown[] = []
+  apiClient.get = async () => ({ data: { success: true, data: original } })
+  apiClient.put = async (_url, data) => {
+    updates.push(data)
+    return { data: { success: true } }
+  }
+  await renderDrawer(original)
+  await waitForLoadedForm()
+  fireEvent.change(screen.getByLabelText('Code type'), {
+    target: { value: 'recharge' },
+  })
+  submitForm()
+  await waitFor(() => expect(updates).toHaveLength(1))
+  expect(updates[0]).toEqual(
+    expect.objectContaining({ type: 'recharge', quota: original.quota })
+  )
+})
+
+test.each([3, 4])(
+  'used or revoked code status %s cannot be edited',
+  async (status) => {
+    const original = { ...redemption(1), status }
+    const updates: unknown[] = []
+    apiClient.get = async () => ({ data: { success: true, data: original } })
+    apiClient.put = async (_url, data) => {
+      updates.push(data)
+      return { data: { success: true } }
+    }
+    await renderDrawer(original)
+    await waitFor(() =>
+      expect(screen.getByLabelText('Code type')).toBeDisabled()
+    )
+    submitForm()
+    expect(updates).toEqual([])
+  }
+)

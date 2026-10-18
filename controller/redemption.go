@@ -30,7 +30,7 @@ func SearchRedemptions(c *gin.Context) {
 	keyword := c.Query("keyword")
 	status := c.Query("status")
 	pageInfo := common.GetPageQuery(c)
-	redemptions, total, err := model.SearchRedemptions(keyword, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
+	redemptions, total, err := model.SearchRedemptions(keyword, status, pageInfo.GetStartIdx(), pageInfo.GetPageSize(), c.Query("type"))
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -72,6 +72,10 @@ func AddRedemption(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if redemption.Type != model.RedemptionTypeRecharge && redemption.Type != model.RedemptionTypeCompensation {
+		common.ApiErrorT(c, "Choose a recharge or compensation redemption code type")
+		return
+	}
 	if utf8.RuneCountInString(redemption.Name) == 0 || utf8.RuneCountInString(redemption.Name) > 20 {
 		common.ApiErrorT(c, "Redemption code name length must be between 1-20")
 		return
@@ -101,6 +105,7 @@ func AddRedemption(c *gin.Context) {
 		key := common.GetUUID()
 		cleanRedemption := model.Redemption{
 			UserId:      c.GetInt("id"),
+			Type:        redemption.Type,
 			Name:        redemption.Name,
 			Key:         key,
 			CreatedTime: common.GetTimestamp(),
@@ -117,6 +122,7 @@ func AddRedemption(c *gin.Context) {
 	}
 	recordManageAudit(c, "redemption.create", map[string]any{
 		"name":  redemption.Name,
+		"type":  redemption.Type,
 		"count": redemption.Count,
 		"quota": logger.FormatQuota(redemption.Quota),
 	})
@@ -169,6 +175,11 @@ func UpdateRedemption(c *gin.Context) {
 			return
 		}
 		// If you add more fields, please also update redemption.Update()
+		if redemption.Type == model.RedemptionTypeLegacy && cleanRedemption.Type != model.RedemptionTypeLegacy {
+			common.ApiErrorT(c, "Choose a recharge or compensation redemption code type")
+			return
+		}
+		cleanRedemption.Type = redemption.Type
 		cleanRedemption.Name = redemption.Name
 		cleanRedemption.Quota = redemption.Quota
 		cleanRedemption.ExpiredTime = redemption.ExpiredTime

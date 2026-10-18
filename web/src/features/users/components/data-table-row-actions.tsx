@@ -61,6 +61,7 @@ import {
 import { getUserActionMessage } from '../lib'
 import type { User } from '../types'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
+import { InviterDialog } from './inviter-dialog'
 import { useUsers } from './users-provider'
 
 const MANAGE_ACTION_TITLES: Record<AdminUserManageAction, string> = {
@@ -86,6 +87,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   } = useUsers()
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
+  const [inviterOpen, setInviterOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
 
@@ -275,6 +277,9 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuShortcut>
         </DropdownMenuItem>
 
+        <DropdownMenuItem onClick={() => setInviterOpen(true)}>
+          {t('Bind or change inviter')}
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
 
         <DropdownMenuItem
@@ -341,6 +346,13 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         handleConfirm={handleResetTwoFA}
       />
 
+      {inviterOpen && (
+        <InviterDialog
+          user={user}
+          onClose={() => setInviterOpen(false)}
+          onSuccess={triggerRefresh}
+        />
+      )}
       <UserBindingDialog
         open={bindingDialogOpen}
         onOpenChange={setBindingDialogOpen}

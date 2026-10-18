@@ -1,3 +1,13 @@
+> **new-api-plus — 非官方二次开发版本**
+>
+> 本仓库基于 [QuantumNous/new-api](https://github.com/QuantumNous/new-api) 的 `v1.0.0-rc.45`（提交 `6cf0d90b5ff27f901697dddd61e0c28aba8efefc`），由 [180cmchn](https://github.com/180cmchn) 独立维护，并非 QuantumNous 官方发行版，不计划长期同步上游更新。
+>
+> **修改日期：2026-10-19。** 主要改动包括普通余额、佣金与赠金分类，消费邀请返利与每日结算，佣金转入，充值/补偿兑换码分类，管理员邀请关系管理及累计 Token 统计。需求与验证结果见 [plan.md](./plan.md)。
+>
+> 本修改版本继续遵循 [AGPLv3](./LICENSE) 及 [NOTICE](./NOTICE) 的附加条款，保留原作者版权、署名及[第三方声明](./THIRD-PARTY-LICENSES.md)。本版本源码位于 [180cmchn/new-api-plus](https://github.com/180cmchn/new-api-plus)。
+>
+> **部署说明：** 请从本仓库构建镜像以使用上述功能。下方原项目文档中的上游镜像及发布链接不包含本仓库的修改。
+
 <div align="center">
 
 ![new-api](/web/public/logo.png)

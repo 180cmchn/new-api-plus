@@ -82,6 +82,20 @@ func GetUserQuotaDates(c *gin.Context) {
 	return
 }
 
+func GetUserTokenSummary(c *gin.Context) {
+	userID := c.GetInt("id")
+	if userID <= 0 {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
+	total, err := model.GetUserTotalTokens(userID)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"total_tokens": total})
+}
+
 func GetAllFlowQuotaDates(c *gin.Context) {
 	startTimestamp, endTimestamp, ok := parseFlowQuotaTimeRange(c)
 	if !ok {

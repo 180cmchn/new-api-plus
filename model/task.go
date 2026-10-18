@@ -12,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	commonRelay "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"gorm.io/gorm"
 )
 
 type TaskStatus string
@@ -67,8 +68,17 @@ type Task struct {
 	Properties Properties            `json:"properties" gorm:"type:json"`
 	Username   string                `json:"username,omitempty" gorm:"-"`
 	// 禁止返回给用户，内部可能包含key等隐私信息
-	PrivateData TaskPrivateData `json:"-" gorm:"column:private_data;type:json"`
-	Data        json.RawMessage `json:"data" gorm:"type:json"`
+	PrivateData      TaskPrivateData       `json:"-" gorm:"column:private_data;type:json"`
+	Data             json.RawMessage       `json:"data" gorm:"type:json"`
+	WalletCompletion *WalletTaskCompletion `json:"-" gorm:"-"`
+}
+
+// WalletTaskCompletion freezes the calculated final price before the task CAS.
+// It is applied to the durable wallet charge in the same database transaction.
+type WalletTaskCompletion struct {
+	Quota  int
+	Reason *common.Message
+	Clamp  *common.QuotaClamp
 }
 
 func (t *Task) SetData(data any) {
@@ -116,6 +126,7 @@ type TaskPrivateData struct {
 	// other private task state so public task DTOs cannot expose it by accident.
 	Execution *TaskExecutionSnapshot `json:"execution,omitempty"`
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
+	WalletChargeID string              `json:"wallet_charge_id,omitempty"`
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
 	TokenId        int                 `json:"token_id,omitempty"`        // 令牌 ID，用于令牌额度退款
@@ -211,7 +222,7 @@ func (p *TaskPrivateData) Scan(val any) error {
 
 func (p TaskPrivateData) Value() (driver.Value, error) {
 	if p.Key == "" && p.UpstreamTaskID == "" && p.ResultURL == "" &&
-		p.Execution == nil && p.BillingSource == "" && p.SubscriptionId == 0 &&
+		p.Execution == nil && p.WalletChargeID == "" && p.BillingSource == "" && p.SubscriptionId == 0 &&
 		p.TokenId == 0 && p.NodeName == "" && p.BillingContext == nil &&
 		!p.ResponsesBackground && len(p.PluginState) == 0 && p.PollFailures == 0 &&
 		!p.ResultDiscarded {
@@ -494,7 +505,23 @@ func (Task *Task) InsertWithContext(ctx context.Context, omitColumns ...string) 
 	if len(omitColumns) > 0 {
 		tx = tx.Omit(omitColumns...)
 	}
-	return tx.Create(Task).Error
+	if Task.PrivateData.WalletChargeID == "" || Task.Status != TaskStatusSuccess && Task.Status != TaskStatusFailure {
+		return tx.Create(Task).Error
+	}
+	var ordinaryDelta int
+	err := tx.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(Task).Error; err != nil {
+			return err
+		}
+		var charge WalletCharge
+		return setWalletCharge(tx, Task.UserId, Task.PrivateData.WalletChargeID, Task.Quota, true, false, &charge, &ordinaryDelta)
+	})
+	if err == nil && ordinaryDelta != 0 {
+		if cacheErr := cacheIncrUserQuota(Task.UserId, int64(ordinaryDelta)); cacheErr != nil {
+			common.SysError(cacheErr.Error())
+		}
+	}
+	return err
 }
 
 type taskSnapshot struct {
@@ -555,11 +582,36 @@ func (t *Task) UpdateQuota() error {
 // falls back to INSERT ON CONFLICT when the WHERE-guarded UPDATE matches
 // zero rows, which silently bypasses the CAS guard.
 func (t *Task) UpdateWithStatus(fromStatus TaskStatus) (bool, error) {
-	result := DB.Model(t).Where("status = ?", fromStatus).Select("*").Updates(t)
-	if result.Error != nil {
-		return false, result.Error
+	var won bool
+	var ordinaryDelta int
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(t).Where("status = ?", fromStatus).Select("*").Updates(t)
+		if result.Error != nil {
+			return result.Error
+		}
+		won = result.RowsAffected > 0
+		if !won || fromStatus == t.Status || t.PrivateData.WalletChargeID == "" {
+			return nil
+		}
+		if t.Status == TaskStatusFailure {
+			return refundWalletCharge(tx, t.UserId, t.PrivateData.WalletChargeID, &ordinaryDelta)
+		}
+		if t.Status != TaskStatusSuccess {
+			return nil
+		}
+		amount := t.Quota
+		if t.WalletCompletion != nil {
+			amount = t.WalletCompletion.Quota
+		}
+		var charge WalletCharge
+		return setWalletCharge(tx, t.UserId, t.PrivateData.WalletChargeID, amount, true, false, &charge, &ordinaryDelta)
+	})
+	if err == nil && ordinaryDelta != 0 {
+		if cacheErr := cacheIncrUserQuota(t.UserId, int64(ordinaryDelta)); cacheErr != nil {
+			common.SysError(cacheErr.Error())
+		}
 	}
-	return result.RowsAffected > 0, nil
+	return won && err == nil, err
 }
 
 // TaskBulkUpdateByID performs an unconditional bulk UPDATE by primary key IDs.

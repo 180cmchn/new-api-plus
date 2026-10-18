@@ -1,3 +1,13 @@
+> **new-api-plus — unofficial modified version**
+>
+> This repository is an independently maintained derivative of [QuantumNous/new-api](https://github.com/QuantumNous/new-api), based on `v1.0.0-rc.45` (commit `6cf0d90b5ff27f901697dddd61e0c28aba8efefc`). It is maintained by [180cmchn](https://github.com/180cmchn) and is not an official QuantumNous release. Regular upstream synchronization is not planned.
+>
+> **Modification date: 2026-10-19.** Changes include ordinary, commission and gift balances; consumption-based referral commissions and daily settlement; commission transfers; recharge/compensation redemption codes; administrator referral management; and cumulative token statistics. Requirements and verification results are recorded in [plan.md](./plan.md).
+>
+> This modified version remains under the [AGPLv3](./LICENSE) and the additional terms in [NOTICE](./NOTICE). Original copyright, author attribution and [third-party notices](./THIRD-PARTY-LICENSES.md) are preserved. The source for this version is available at [180cmchn/new-api-plus](https://github.com/180cmchn/new-api-plus).
+>
+> **Deployment:** Build from this repository to use these changes. The upstream images and release links in the original documentation below do not contain this repository's modifications.
+
 <div align="center">
 
 ![new-api](/web/public/logo.png)

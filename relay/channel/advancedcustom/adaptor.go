@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
@@ -381,12 +382,13 @@ func (a *Adaptor) resolve(c *gin.Context, info *relaycommon.RelayInfo) error {
 
 func incomingRequestPath(c *gin.Context, info *relaycommon.RelayInfo) string {
 	if c != nil && c.Request != nil && c.Request.URL != nil {
-		return c.Request.URL.Path
+		return common.CanonicalRelayPath(c.Request.URL.Path)
 	}
 	if info == nil {
 		return ""
 	}
-	return strings.Split(info.RequestURLPath, "?")[0]
+	path, _, _ := strings.Cut(info.RequestURLPath, "?")
+	return common.CanonicalRelayPath(path)
 }
 
 func (a *Adaptor) routeURL(info *relaycommon.RelayInfo) (string, error) {

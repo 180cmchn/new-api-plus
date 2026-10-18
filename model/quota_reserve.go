@@ -144,7 +144,19 @@ func reserveUserQuotaDB(id int, quota int) (bool, error) {
 	result := DB.Model(&User{}).
 		Where("id = ? AND quota >= ?", id, quota).
 		Update("quota", gorm.Expr("quota - ?", quota))
-	return result.RowsAffected == 1, result.Error
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if result.RowsAffected == 0 {
+		var count int64
+		if err := DB.Model(&User{}).Where("id = ?", id).Count(&count).Error; err != nil {
+			return false, err
+		}
+		if count == 0 {
+			return false, gorm.ErrRecordNotFound
+		}
+	}
+	return result.RowsAffected == 1, nil
 }
 
 func reserveTokenQuotaDB(id int, quota int) (bool, error) {
@@ -165,36 +177,19 @@ func TryReserveUserQuota(id int, quota int) (bool, error) {
 	if quota < 0 {
 		return false, errors.New("quota cannot be negative")
 	}
+	if err := common.ValidateWalletQuota(quota); err != nil {
+		return false, err
+	}
 	if quota == 0 {
 		return true, nil
 	}
-	if !common.RedisEnabled {
-		return reserveUserQuotaDB(id, quota)
-	}
-
-	result, err := cacheTryReserveUserQuota(id, int64(quota))
-	if err == nil && result == cacheQuotaMiss {
-		if _, hydrateErr := GetUserCache(id); hydrateErr == nil {
-			result, err = cacheTryReserveUserQuota(id, int64(quota))
+	reserved, err := reserveUserQuotaDB(id, quota)
+	if err == nil && reserved {
+		if cacheErr := cacheDecrUserQuota(id, int64(quota)); cacheErr != nil {
+			common.SysError(cacheErr.Error())
 		}
 	}
-	if err != nil || result == cacheQuotaMiss {
-		if err != nil {
-			common.SysLog(common.LogText("user quota cache reserve unavailable, falling back to database: %s", err.Error()))
-		}
-		return reserveUserQuotaDB(id, quota)
-	}
-	if result == cacheQuotaInsufficient {
-		return false, nil
-	}
-	if err = persistUserQuotaDelta(id, -quota); err != nil {
-		compensated, compensateErr := cacheApplyUserQuotaDelta(id, int64(quota))
-		if compensateErr != nil || compensated != cacheQuotaOK {
-			common.SysError(common.LogText("failed to compensate reserved user quota: result=%d error=%v", compensated, compensateErr))
-		}
-		return false, err
-	}
-	return true, nil
+	return reserved, err
 }
 
 // TryReserveTokenQuota atomically checks and deducts a token quota. Unlimited

@@ -87,7 +87,8 @@ func WeChatAuth(c *gin.Context) {
 			user.Role = common.RoleCommonUser
 			user.Status = common.UserStatusEnabled
 
-			if err := user.Insert(0); err != nil {
+			inviterId, _ := model.GetUserIdByAffCode(c.Query("aff"))
+			if err := user.Insert(inviterId); err != nil {
 				common.ApiError(c, err)
 				return
 			}

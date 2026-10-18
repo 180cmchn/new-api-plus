@@ -273,7 +273,7 @@ func GetTokenUsage(c *gin.Context) {
 	}
 	// 用户额度只在令牌允许时返回；IP 白名单已由 TokenAuthReadOnly 检查。
 	if token.AllowUserQuotaQuery {
-		userQuota, err := model.GetUserQuota(token.UserId, false)
+		userQuota, err := model.GetWalletAvailableQuota(token.UserId)
 		var userUsedQuota int
 		if err == nil {
 			userUsedQuota, err = model.GetUserUsedQuota(token.UserId)

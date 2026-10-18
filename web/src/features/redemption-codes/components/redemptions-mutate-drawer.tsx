@@ -41,6 +41,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import {
   Sheet,
   SheetClose,
@@ -164,6 +165,8 @@ export function RedemptionsMutateDrawer({
   const isUpdateReady =
     !isUpdate ||
     (redemptionLoadState === 'ready' && loadedRedemption?.id === redemptionId)
+  const isImmutable =
+    isUpdate && !!loadedRedemption && ![1, 2].includes(loadedRedemption.status)
   const isLoadingRedemption = redemptionLoadState === 'loading'
 
   const onSubmit = async (data: RedemptionFormValues) => {
@@ -171,6 +174,13 @@ export function RedemptionsMutateDrawer({
       return
     }
 
+    if (isImmutable) return
+    if (!isUpdate && !data.type) {
+      form.setError('type', {
+        message: t('Choose a recharge or compensation redemption code type'),
+      })
+      return
+    }
     setIsSubmitting(true)
     try {
       const basePayload = transformFormDataToPayload(data)
@@ -294,10 +304,43 @@ export function RedemptionsMutateDrawer({
               aria-busy={isLoadingRedemption}
             >
               <fieldset
-                disabled={!isUpdateReady || isSubmitting}
+                disabled={!isUpdateReady || isSubmitting || isImmutable}
                 className='contents'
               >
                 <SideDrawerSection>
+                  <FormField
+                    control={form.control}
+                    name='type'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Code type')}</FormLabel>
+                        <FormControl>
+                          <NativeSelect {...field} className='w-full'>
+                            <NativeSelectOption
+                              value=''
+                              disabled={!isUpdate || !!loadedRedemption?.type}
+                            >
+                              {isUpdate
+                                ? t('Legacy code')
+                                : t('Select code type')}
+                            </NativeSelectOption>
+                            <NativeSelectOption value='recharge'>
+                              {t('Recharge code')}
+                            </NativeSelectOption>
+                            <NativeSelectOption value='compensation'>
+                              {t('Compensation code')}
+                            </NativeSelectOption>
+                          </NativeSelect>
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Only recharge codes earn referral rewards. Compensation codes do not.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                   <FormField
                     control={form.control}
                     name='name'
@@ -445,7 +488,7 @@ export function RedemptionsMutateDrawer({
             <Button
               form='redemption-form'
               type='submit'
-              disabled={isSubmitting || !isUpdateReady}
+              disabled={isSubmitting || !isUpdateReady || isImmutable}
             >
               {submitButtonLabel}
             </Button>

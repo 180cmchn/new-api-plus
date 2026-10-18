@@ -197,6 +197,19 @@ func UpdateOption(c *gin.Context) {
 		option.Value = fmt.Sprintf("%v", option.Value)
 	}
 	switch option.Key {
+	case "ReferralRewardPercent", "CommissionTransferFeePercent":
+		if _, err := common.ParseReferralPercent(option.Value.(string)); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	case "ReferralEnabled":
+		if option.Value != "true" && option.Value != "false" {
+			common.ApiErrorT(c, "Invalid parameters")
+			return
+		}
+		if option.Value == "true" && !requirePaymentCompliance(c) {
+			return
+		}
 	case "QuotaForInviter", "QuotaForInvitee":
 		if isPositiveOptionValue(option.Value.(string)) && !operation_setting.IsPaymentComplianceConfirmed() {
 			common.ApiErrorT(c, "Payment, redemption, subscription, and invitation reward features are disabled. The administrator must confirm compliance terms before enabling them.")

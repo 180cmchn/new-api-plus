@@ -3,6 +3,7 @@ package model
 import (
 	"slices"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 )
@@ -97,7 +98,7 @@ func channelMatchesFilter(ch *Channel, modelName string, filter dto.ChannelFilte
 			return true
 		}
 		config := ch.GetOtherSettings().AdvancedCustom
-		return config != nil && config.SupportsPathForModel(filter.RequestPath, modelName)
+		return config != nil && config.SupportsPathForModel(common.CanonicalRelayPath(filter.RequestPath), modelName)
 	case dto.FilterTaskPluginIdentity:
 		if filter.TaskPluginKey == "" {
 			return ch.Type != constant.ChannelTypeTaskPlugin

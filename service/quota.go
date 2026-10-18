@@ -89,7 +89,7 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	if relayInfo.UsePrice {
 		return nil
 	}
-	userQuota, err := model.GetUserQuota(relayInfo.UserId, false)
+	userQuota, err := model.GetWalletAvailableQuota(relayInfo.UserId)
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,11 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 		return fmt.Errorf("token quota is not enough, token remain quota: %s, need quota: %s", logger.FormatQuota(token.RemainQuota), logger.FormatQuota(quota))
 	}
 
-	err = PostConsumeQuota(relayInfo, quota, 0, false)
+	if session, ok := relayInfo.Billing.(*BillingSession); ok {
+		err = session.ReserveAdditional(quota)
+	} else {
+		err = errors.New("realtime billing session is missing")
+	}
 	if err != nil {
 		return err
 	}
@@ -450,12 +454,10 @@ func postConsumeQuotaWithResult(relayInfo *relaycommon.RelayInfo, quota int, pre
 			relayInfo.SubscriptionPostDelta += delta
 		}
 	} else {
-		// Wallet
-		if quota > 0 {
-			err = model.DecreaseUserQuota(relayInfo.UserId, quota, false)
-		} else {
-			err = model.IncreaseUserQuota(relayInfo.UserId, -quota, false)
+		if relayInfo.WalletChargeID == "" {
+			relayInfo.WalletChargeID = common.GetUUID()
 		}
+		_, err = model.SetWalletCharge(relayInfo.UserId, relayInfo.WalletChargeID, quota+preConsumedQuota, !relayInfo.WalletSettlementPending, false)
 		if err != nil {
 			return result, err
 		}

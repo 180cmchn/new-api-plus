@@ -81,18 +81,44 @@ export function formatQuota(quota: number): string {
 /**
  * Parse quota from the current display input back to quota units.
  */
-export function parseQuotaFromDollars(amount: number): number {
+export function parseQuotaFromDollars(
+  amount: number,
+  rounding: 'round' | 'trunc' = 'round'
+): number {
   if (!Number.isFinite(amount)) return 0
 
   const { config, meta } = getCurrencyDisplay()
 
   // Tokens-only or raw quota mode
   if (meta.kind === 'tokens') {
-    return Math.round(amount)
+    return rounding === 'trunc' ? Math.trunc(amount) : Math.round(amount)
   }
 
   const exchangeRate =
     meta.kind === 'currency' || meta.kind === 'custom' ? meta.exchangeRate : 1
+
+  if (rounding === 'trunc') {
+    // Multiply decimal fractions exactly before truncation: binary products
+    // such as 0.29 * 100 must not discard a whole quota unit.
+    let numerator = 1n
+    let denominator = 1n
+    for (const [value, divide] of [
+      [amount, false],
+      [config.quotaPerUnit, false],
+      [exchangeRate, true],
+    ] as const) {
+      if (!Number.isFinite(value)) return 0
+      const [coefficient, exponent = '0'] = String(value).split('e')
+      const scale = (coefficient.split('.')[1]?.length ?? 0) - Number(exponent)
+      let partNumerator = BigInt(coefficient.replace('.', ''))
+      let partDenominator = 1n
+      if (scale > 0) partDenominator = 10n ** BigInt(scale)
+      else partNumerator *= 10n ** BigInt(-scale)
+      numerator *= divide ? partDenominator : partNumerator
+      denominator *= divide ? partNumerator : partDenominator
+    }
+    return denominator === 0n ? 0 : Number(numerator / denominator)
+  }
 
   const usdAmount = exchangeRate > 0 ? amount / exchangeRate : amount
 

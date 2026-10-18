@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { Row } from '@tanstack/react-table'
-import { Trash2, Edit, Power, PowerOff } from 'lucide-react'
+import { Trash2, Edit, Power, PowerOff, Undo2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -79,8 +79,11 @@ export function DataTableRowActions<TData>({
     }
   }
 
-  const canEdit = isEnabled && !isExpired
-  const canToggle = !isUsed && !isExpired
+  const canEdit =
+    [REDEMPTION_STATUS.ENABLED, REDEMPTION_STATUS.DISABLED].some(
+      (status) => status === redemption.status
+    ) && !redemption.used_user_id
+  const canToggle = canEdit && !isExpired
 
   return (
     <div className='-ml-1.5 flex items-center gap-1'>
@@ -124,7 +127,21 @@ export function DataTableRowActions<TData>({
             )}
           </DropdownMenuItem>
         )}
-        {canToggle && <DropdownMenuSeparator />}
+        {isUsed && (
+          <DropdownMenuItem
+            onClick={() => {
+              setCurrentRow(redemption)
+              setOpen('revoke')
+            }}
+            className='text-destructive'
+          >
+            {t('Revoke redemption')}
+            <DropdownMenuShortcut>
+              <Undo2 size={16} />
+            </DropdownMenuShortcut>
+          </DropdownMenuItem>
+        )}
+        {(canToggle || isUsed) && <DropdownMenuSeparator />}
         <DropdownMenuItem
           onClick={() => {
             setCurrentRow(redemption)

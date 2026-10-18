@@ -350,6 +350,12 @@ func migrateDB() error {
 		&Option{},
 		&LoginEncryptionKey{},
 		&Redemption{},
+		&RedemptionRecord{},
+		&WalletCharge{},
+		&CommissionDay{},
+		&CommissionSettlement{},
+		&CommissionTransfer{},
+		&ReferralBindingChange{},
 		&Ability{},
 		&Log{},
 		&Midjourney{},
@@ -378,6 +384,9 @@ func migrateDB() error {
 		&UserAccessToken{},
 	)
 	if err != nil {
+		return err
+	}
+	if err := migrateCommissionSettlementRateIndex(DB); err != nil {
 		return err
 	}
 	if err := InitializeUserAuthVersions(); err != nil {

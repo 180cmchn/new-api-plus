@@ -622,6 +622,7 @@ func executeTaskSubmissionWith(
 	task.PrivateData.Execution = service.TaskExecutionSnapshotFromContext(c)
 	task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
 	task.PrivateData.BillingSource = relayInfo.BillingSource
+	task.PrivateData.WalletChargeID = relayInfo.WalletChargeID
 	task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 	task.PrivateData.TokenId = relayInfo.TokenId
 	task.PrivateData.NodeName = common.NodeName
@@ -694,6 +695,7 @@ func executeTaskSubmissionWith(
 	diagnostics.durable(task)
 	diagnostics.settleStart(task, result.Quota)
 
+	relayInfo.WalletSettlementPending = task.Status != model.TaskStatusSuccess && task.Status != model.TaskStatusFailure
 	if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
 		common.SysError(common.LogText("settle task billing error: %s", settleErr.Error()))
 		taskErr = service.TaskErrorWrapperLocal(errors.New("failed to settle task billing"), "task_billing_settlement_failed", http.StatusInternalServerError)

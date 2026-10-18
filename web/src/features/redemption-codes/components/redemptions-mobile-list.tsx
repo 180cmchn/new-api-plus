@@ -34,7 +34,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import { REDEMPTION_STATUS, REDEMPTION_STATUSES } from '../constants'
+import {
+  REDEMPTION_STATUS,
+  REDEMPTION_STATUSES,
+  getRedemptionTypeLabel,
+} from '../constants'
 import { isRedemptionExpired } from '../lib'
 import type { Redemption } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
@@ -128,7 +132,7 @@ export function RedemptionsMobileList(props: RedemptionsMobileListProps) {
                   {redemption.name}
                 </div>
                 <div className='text-muted-foreground text-[11px]'>
-                  {t('Redemption Code')}
+                  {getRedemptionTypeLabel(redemption.type, t)}
                 </div>
               </div>
               {expired ? (

@@ -61,8 +61,9 @@ const BILLING_SECTIONS = [
       <QuotaSettingsSection
         defaultValues={{
           QuotaForNewUser: settings.QuotaForNewUser,
-          QuotaForInviter: settings.QuotaForInviter,
-          QuotaForInvitee: settings.QuotaForInvitee,
+          CommissionTransferFeePercent: settings.CommissionTransferFeePercent,
+          ReferralRewardPercent: settings.ReferralRewardPercent,
+          ReferralEnabled: settings.ReferralEnabled,
           TopUpLink: settings.TopUpLink,
           quota_setting: {
             trust_quota_usd: settings['quota_setting.trust_quota_usd'],

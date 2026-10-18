@@ -52,11 +52,11 @@ function captureDownloads() {
       revokeObjectURL: vi.fn(),
     })
   )
-  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
-    function (this: HTMLAnchorElement) {
-      downloads.push({ filename: this.download, blob: currentBlob })
-    }
-  )
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+    this: HTMLAnchorElement
+  ) {
+    downloads.push({ filename: this.download, blob: currentBlob })
+  })
   return downloads
 }
 
@@ -195,6 +195,10 @@ test('successful batch creation opens export with returned codes and the configu
   const createDialog = screen.getByRole('dialog', {
     name: 'Create Redemption Code',
   })
+  await user.selectOptions(
+    within(createDialog).getByLabelText('Code type'),
+    'recharge'
+  )
   fireEvent.change(within(createDialog).getByLabelText('Name'), {
     target: { value: 'batch' },
   })
@@ -210,6 +214,10 @@ test('successful batch creation opens export with returned codes and the configu
   const exportDialog = await screen.findByRole('dialog', {
     name: 'Redemption codes created',
   })
+  expect(api.post).toHaveBeenCalledWith(
+    '/api/redemption/',
+    expect.objectContaining({ type: 'recharge' })
+  )
   expect(exportDialog).toHaveTextContent(
     'Successfully created 2 redemption codes'
   )
@@ -242,6 +250,7 @@ test('failed creation does not open a success export dialog', async () => {
     data: { success: false, message: 'Creation failed' },
   })
   render(<CreateDrawer />)
+  await user.selectOptions(screen.getByLabelText('Code type'), 'compensation')
   fireEvent.change(screen.getByLabelText('Name'), {
     target: { value: 'batch' },
   })
@@ -308,4 +317,17 @@ test('unchecking save as a file hides export settings and completes without down
   await user.click(screen.getByRole('button', { name: 'Done' }))
   expect(downloads).toEqual([])
   expect(onClose).toHaveBeenCalledOnce()
+})
+
+test('new redemption codes require an explicit type', async () => {
+  const post = vi.spyOn(api, 'post')
+  const user = userEvent.setup()
+  render(<CreateDrawer />)
+  await user.click(screen.getByRole('button', { name: 'Save changes' }))
+  expect(
+    await screen.findByText(
+      'Choose a recharge or compensation redemption code type'
+    )
+  ).toBeVisible()
+  expect(post).not.toHaveBeenCalled()
 })

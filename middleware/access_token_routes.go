@@ -222,6 +222,16 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/token/batch":      accessTokenScopeRule("api_key:write"),
 	"POST /api/token/batch/keys": accessTokenScopeRule("api_key:reveal"),
 
+	"GET /api/user/wallet":            accessTokenScopeRule("wallet:read"),
+	"PUT /api/user/wallet/order":      accessTokenScopeRule("wallet:write"),
+	"POST /api/user/wallet/transfer":  accessTokenScopeRule("wallet:write"),
+	"PUT /api/user/:id/inviter":       accessTokenScopeRule("user:write"),
+	"GET /api/referral/transfers":     accessTokenScopeRule("user:read"),
+	"GET /api/user/referral":          accessTokenScopeRule("wallet:read"),
+	"GET /api/referral/":              accessTokenScopeRule("user:read"),
+	"POST /api/referral/settle_today": accessTokenSessionRule,
+	"GET /api/referral/:id/records":   accessTokenScopeRule("user:read"),
+	"POST /api/redemption/:id/revoke": accessTokenScopeRule("redemption:write"),
 	// router/api-router.go: /api/redemption
 	"GET /api/redemption/":           accessTokenScopeRule("redemption:read"),
 	"GET /api/redemption/search":     accessTokenScopeRule("redemption:read"),
@@ -246,6 +256,7 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"GET /api/data/":                            accessTokenScopeRule("log:read"),
 	"GET /api/data/users":                       accessTokenScopeRule("log:read"),
 	"GET /api/data/self":                        accessTokenScopeRule("usage:read"),
+	"GET /api/data/self/summary":                accessTokenScopeRule("usage:read"),
 	"GET /api/data/flow":                        accessTokenScopeRule("log:read"),
 	"GET /api/data/flow/self":                   accessTokenScopeRule("usage:read"),
 

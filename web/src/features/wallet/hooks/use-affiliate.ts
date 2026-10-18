@@ -16,90 +16,31 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import i18next from 'i18next'
-import { useState, useEffect, useCallback } from 'react'
-import { toast } from 'sonner'
+import { useQuery } from '@tanstack/react-query'
 
-import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { getSelf } from '@/lib/api'
-import { handleServerError } from '@/lib/handle-server-error'
-import {
-  getServerMessage,
-  requireServerSuccess,
-} from '@/lib/server-error-message'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
-import { getAffiliateCode, transferAffiliateQuota } from '../api'
+import { getAffiliateCode, getReferralSummary } from '../api'
 import { generateAffiliateLink } from '../lib'
 
-// ============================================================================
-// Affiliate Hook
-// ============================================================================
-
 export function useAffiliate() {
-  const [affiliateCode, setAffiliateCode] = useState<string>('')
-  const [affiliateLink, setAffiliateLink] = useState<string>('')
-  const [loading, setLoading] = useState(true)
-  const [transferring, setTransferring] = useState(false)
-  const { copyToClipboard } = useCopyToClipboard()
-
-  // Fetch affiliate code
-  const fetchAffiliateCode = useCallback(async () => {
-    try {
-      setLoading(true)
-      const response = requireServerSuccess(await getAffiliateCode())
-
-      if (response.success && response.data) {
-        setAffiliateCode(response.data)
-        const link = generateAffiliateLink(response.data)
-        setAffiliateLink(link)
-      }
-    } catch (error) {
-      handleServerError(error)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  // Copy affiliate link
-  const copyAffiliateLink = useCallback(() => {
-    copyToClipboard(affiliateLink)
-  }, [affiliateLink, copyToClipboard])
-
-  // Transfer affiliate quota to balance
-  const transferQuota = useCallback(async (quota: number): Promise<boolean> => {
-    try {
-      setTransferring(true)
-      const response = await transferAffiliateQuota({ quota })
-
-      if (response.success) {
-        toast.success(
-          getServerMessage(response) || i18next.t('Transfer successful')
-        )
-        await getSelf()
-        return true
-      }
-
-      handleServerError(response, i18next.t('Transfer failed'))
-      return false
-    } catch (_error) {
-      handleServerError(_error, i18next.t('Transfer failed'))
-      return false
-    } finally {
-      setTransferring(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    fetchAffiliateCode()
-  }, [fetchAffiliateCode])
+  const query = useQuery({
+    queryKey: ['referral-summary'],
+    queryFn: async () => {
+      const [codeResponse, summaryResponse] = await Promise.all([
+        getAffiliateCode(),
+        getReferralSummary(),
+      ])
+      const code = requireServerSuccess(codeResponse).data
+      const summary = requireServerSuccess(summaryResponse).data
+      return { affiliateLink: code ? generateAffiliateLink(code) : '', summary }
+    },
+  })
 
   return {
-    affiliateCode,
-    affiliateLink,
-    loading,
-    transferring,
-    copyAffiliateLink,
-    transferQuota,
-    refetch: fetchAffiliateCode,
+    affiliateLink: query.data?.affiliateLink ?? '',
+    summary: query.data?.summary,
+    loading: query.isPending,
+    error: query.isError,
   }
 }

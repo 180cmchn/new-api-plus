@@ -51,6 +51,7 @@ func PrepareMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.
 		return false, errors.New("legacy Midjourney billing does not support subscriptions")
 	}
 
+	task.WalletChargeID = common.GetUUID()
 	task.Quota = quota
 	task.BillingChannelId = task.ChannelId
 	if relayInfo.ChannelMeta != nil && relayInfo.ChannelId > 0 {
@@ -71,6 +72,8 @@ func SettleMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.M
 		return false, errors.New("Midjourney task must be persisted before billing")
 	}
 
+	relayInfo.WalletChargeID = task.WalletChargeID
+	relayInfo.WalletSettlementPending = task.Status != "SUCCESS"
 	result, billingErr := postConsumeQuotaWithResult(relayInfo, task.Quota, 0, true)
 	if !result.FundingApplied {
 		task.Quota = 0
@@ -92,6 +95,19 @@ func SettleMidjourneyTaskBilling(relayInfo *relaycommon.RelayInfo, task *model.M
 	return true, billingErr
 }
 
+// FailMidjourneyWalletTask preserves source-specific refunds when the channel
+// or upstream identifier is unavailable. Only the status-CAS winner refunds.
+func FailMidjourneyWalletTask(ctx context.Context, task *model.Midjourney, reason string) error {
+	previous := task.Status
+	task.Status, task.Progress, task.FailReason = "FAILURE", "100%", reason
+	won, err := task.UpdateWithStatus(previous)
+	if err != nil || !won {
+		return err
+	}
+	RefundMidjourneyQuota(ctx, task, reason)
+	return nil
+}
+
 // RefundMidjourneyQuota reverses every accounting element recorded for a billed legacy task.
 func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason string) bool {
 	quota := task.Quota
@@ -99,7 +115,13 @@ func RefundMidjourneyQuota(ctx context.Context, task *model.Midjourney, reason s
 		return true
 	}
 
-	if err := model.IncreaseUserQuota(task.UserId, quota, false); err != nil {
+	var refundErr error
+	if task.WalletChargeID != "" {
+		refundErr = model.RefundWalletCharge(task.UserId, task.WalletChargeID)
+	} else {
+		refundErr = model.IncreaseUserQuota(task.UserId, quota, false)
+	}
+	if err := refundErr; err != nil {
 		logger.LogWarn(ctx, common.LogText("failed to refund Midjourney user quota, task %s: %s", task.MjId, err.Error()))
 		return false
 	}
