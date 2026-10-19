@@ -1,5 +1,17 @@
 # 钱包与邀请返利实施计划
 
+## 2026-10-19 补充：推荐计划提现文案与流光（已实现，待重建测试容器）
+
+- [x] 在推荐计划说明末尾追加「，并且支持提现」，仅「支持提现」显示流光效果。复用现有 `Shimmer`，补全已有 `as` 属性以支持段落内的 `span`；开启系统「减少动态效果」时显示静态文字。
+- [x] 流光采用两秒循环的 RGB 彩虹渐变，叠加粉色、青色的呼吸光晕；深色主题使用高亮霓虹配色，浅色主题加深文字颜色以保持可读。减少动态效果时同时关闭彩虹流动和光晕动画。
+- [x] 文案通过 `Trans` 保留各语言语序，两个新键经 `add-missing-keys.mjs` 和 `bun run i18n:sync` 同步七种语言；临时脚本已删除，简体中文核对通过。
+- [x] 在 `web/` 执行 `bun run test src/features/users/components/__tests__/referral-view.test.tsx src/features/wallet/__tests__/copy.test.tsx`，11 个测试通过；`bun run build:check`、涉及文件的 oxlint、保留版权头的 oxfmt 和 `git diff --check` 均通过。
+
+## 2026-10-19 补充：钱包卡片顺序（已实现，待重建测试容器）
+
+- [x] 将「推荐计划」移到「普通钱包 / 佣金 / 赠金」卡片下方、「添加资金」上方，桌面和移动端采用相同顺序；复用现有卡片及间距。
+- [x] 在 `web/` 执行 `bun run test src/features/wallet/components/__tests__/wallet-accounts.test.tsx src/features/users/components/__tests__/referral-view.test.tsx src/features/wallet/__tests__/copy.test.tsx`，18 个现有测试通过；`bun run build:check`、修改文件的 oxlint、保留版权头的 oxfmt 和 `git diff --check` 均通过。
+
 ## 2026-10-19 补充：发布至独立仓库的准备
 
 - [x] 目标仓库为 `180cmchn/new-api-plus`，独立维护、不计划长期同步上游；保留 rc.45 基线及既有 Git 提交历史。提交身份为 `180cmchn <180cm.chn@gmail.com>`。

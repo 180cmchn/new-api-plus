@@ -17,8 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Share2 } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 
+import { Shimmer } from '@/components/ai-elements/shimmer'
 import { CopyButton } from '@/components/copy-button'
 import { Card, CardContent } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
@@ -55,9 +56,21 @@ export function AffiliateRewardsCard({
           <div className='min-w-0'>
             <h3 className='text-sm font-semibold'>{t('Referral Program')}</h3>
             <p className='text-muted-foreground text-xs'>
-              {t(
-                'Users who register through your referral link and make purchases earn you commissions. You can transfer commissions to your ordinary wallet at any time.'
-              )}
+              <Trans
+                t={t}
+                i18nKey='Users who register through your referral link and make purchases earn you commissions. You can transfer commissions to your ordinary wallet at any time, and <withdrawal/>.'
+                components={{
+                  withdrawal: (
+                    <Shimmer
+                      as='span'
+                      duration={2}
+                      className='referral-withdrawal-neon font-bold'
+                    >
+                      {t('withdrawals are supported')}
+                    </Shimmer>
+                  ),
+                }}
+              />
             </p>
           </div>
         </div>

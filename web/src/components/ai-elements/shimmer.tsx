@@ -21,6 +21,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { motion } from 'motion/react'
 import { type CSSProperties, type ElementType, memo, useMemo } from 'react'
 
+import { useMediaQuery } from '@/hooks/use-media-query'
 import { cn } from '@/lib/utils'
 
 export type TextShimmerProps = {
@@ -31,21 +32,30 @@ export type TextShimmerProps = {
   spread?: number
 }
 
-const MotionP = motion.p
-
 const ShimmerComponent = ({
   children,
+  as = 'p',
   className,
   duration = 2,
   spread = 2,
 }: TextShimmerProps) => {
+  const Component = useMemo(() => motion.create(as), [as])
+  const shouldReduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const dynamicSpread = useMemo(
     () => (children?.length ?? 0) * spread,
     [children, spread]
   )
 
+  if (shouldReduceMotion) {
+    return (
+      <Component className={cn('relative inline-block', className)}>
+        {children}
+      </Component>
+    )
+  }
+
   return (
-    <MotionP
+    <Component
       animate={{ backgroundPosition: '0% center' }}
       className={cn(
         'relative inline-block bg-[length:250%_100%,auto] bg-clip-text text-transparent',
@@ -67,7 +77,7 @@ const ShimmerComponent = ({
       }}
     >
       {children}
-    </MotionP>
+    </Component>
   )
 }
 

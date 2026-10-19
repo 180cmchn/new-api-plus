@@ -284,6 +284,13 @@ export function Wallet(props: WalletProps) {
             <WalletStatsCard user={user} loading={userLoading} />
             <WalletAccountsCard onBalanceChange={fetchUser} />
 
+            <AffiliateRewardsCard
+              summary={referralSummary}
+              error={referralError}
+              affiliateLink={affiliateLink}
+              loading={affiliateLoading}
+            />
+
             <div
               className={
                 showSubscriptionPanel
@@ -332,13 +339,6 @@ export function Wallet(props: WalletProps) {
                 onPurchaseSuccess={fetchUser}
               />
             </div>
-
-            <AffiliateRewardsCard
-              summary={referralSummary}
-              error={referralError}
-              affiliateLink={affiliateLink}
-              loading={affiliateLoading}
-            />
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>

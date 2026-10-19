@@ -138,6 +138,56 @@ For commercial licensing, please contact support@quantumnous.com
   }
 }
 
+.referral-withdrawal-neon {
+  --bg: repeating-linear-gradient(
+    90deg,
+    #c0005a 0%,
+    #984400 8.333%,
+    #457500 16.667%,
+    #006455 25%,
+    #0068a4 33.333%,
+    #6d28d9 41.667%,
+    #c0005a 50%
+  );
+  --neon-pink: rgb(219 0 122 / 35%);
+  --neon-cyan: rgb(0 120 190 / 30%);
+  background-size:
+    200% 100%,
+    auto;
+}
+
+.dark .referral-withdrawal-neon {
+  --bg: repeating-linear-gradient(
+    90deg,
+    #ff4d8d 0%,
+    #ffb347 8.333%,
+    #d4ff00 16.667%,
+    #00f5a0 25%,
+    #00d9ff 33.333%,
+    #b38aff 41.667%,
+    #ff4d8d 50%
+  );
+  --neon-pink: rgb(255 45 149 / 80%);
+  --neon-cyan: rgb(0 229 255 / 65%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .referral-withdrawal-neon {
+    animation: referral-withdrawal-glow 2s ease-in-out infinite alternate;
+  }
+}
+
+@keyframes referral-withdrawal-glow {
+  from {
+    filter: drop-shadow(0 0 2px var(--neon-pink))
+      drop-shadow(0 0 5px var(--neon-cyan));
+  }
+  to {
+    filter: drop-shadow(0 0 4px var(--neon-pink))
+      drop-shadow(0 0 10px var(--neon-cyan));
+  }
+}
+
 /* Vercel Geist-style skeleton shimmer */
 .skeleton-shimmer {
   background: linear-gradient(

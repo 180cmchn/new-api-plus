@@ -252,11 +252,11 @@ test('the user sees only invite count, effective rewards and the referral link',
   expect(screen.queryByText('Pending')).not.toBeInTheDocument()
   expect(screen.queryByText('Transfer to Balance')).not.toBeInTheDocument()
   expect(screen.queryByText('Invitee')).not.toBeInTheDocument()
-  expect(
-    screen.getByText(
-      'Users who register through your referral link and make purchases earn you commissions. You can transfer commissions to your ordinary wallet at any time.'
-    )
-  ).toBeVisible()
+  const withdrawalCopy = screen.getByText('withdrawals are supported')
+  expect(withdrawalCopy).toBeVisible()
+  expect(withdrawalCopy.closest('p')).toHaveTextContent(
+    'Users who register through your referral link and make purchases earn you commissions. You can transfer commissions to your ordinary wallet at any time, and withdrawals are supported.'
+  )
 })
 
 test('the admin sees transfer amounts and fees and filters by user ID', async () => {
